@@ -2,6 +2,12 @@
 name = "specai"
 version = "0.1.0"
 edition = "2024"
+description = "A framework for building AI agents with structured outputs, policy enforcement, and execution tracking"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/geoffsee/specai"
+documentation = "https://docs.rs/specai"
+keywords = ["ai", "agents", "llm", "policy", "framework"]
+categories = ["development-tools"]
 
 [lib]
 name = "specai"
