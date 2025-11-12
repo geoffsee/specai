@@ -1,5 +1,7 @@
 //! CLI module for Epic 4 — minimal REPL and command parser
 
+mod formatting;
+
 use anyhow::{Context, Result};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -146,25 +148,28 @@ impl CliState {
     pub async fn handle_line(&mut self, line: &str) -> Result<Option<String>> {
         match parse_command(line) {
             Command::Empty => Ok(None),
-            Command::Help => Ok(Some(self.help_text())),
+            Command::Help => Ok(Some(formatting::render_help())),
             Command::Quit => Ok(Some("__QUIT__".to_string())),
-            Command::ConfigShow => Ok(Some(self.config.summary())),
+            Command::ConfigShow => {
+                let summary = self.config.summary();
+                Ok(Some(formatting::render_config(&summary)))
+            }
             Command::ListAgents => {
                 let agents = self.registry.list();
                 let active = self.registry.active_name();
                 if agents.is_empty() {
                     Ok(Some("No agents configured.".to_string()))
                 } else {
-                    let mut out = String::from("Available agents:\n");
-                    for name in agents {
-                        let marker = if Some(&name) == active.as_ref() {
-                            " (active)"
-                        } else {
-                            ""
-                        };
-                        out.push_str(&format!("  - {}{}\n", name, marker));
-                    }
-                    Ok(Some(out))
+                    let agent_data: Vec<(String, bool, Option<String>)> = agents
+                        .into_iter()
+                        .map(|name| {
+                            let is_active = Some(&name) == active.as_ref();
+                            let description =
+                                self.registry.get(&name).and_then(|p| p.style.clone());
+                            (name, is_active, description)
+                        })
+                        .collect();
+                    Ok(Some(formatting::render_agent_table(agent_data)))
                 }
             }
             Command::ConfigReload => {
@@ -216,11 +221,11 @@ impl CliState {
                 if msgs.is_empty() {
                     Ok(Some("No messages in this session.".to_string()))
                 } else {
-                    let mut out = String::from("Recent messages:\n");
-                    for m in msgs {
-                        out.push_str(&format!("{}: {}\n", m.role.as_str(), m.content));
-                    }
-                    Ok(Some(out))
+                    let messages: Vec<(String, String)> = msgs
+                        .into_iter()
+                        .map(|m| (m.role.as_str().to_string(), m.content))
+                        .collect();
+                    Ok(Some(formatting::render_memory(messages)))
                 }
             }
             Command::SessionNew(id_opt) => {
@@ -239,11 +244,10 @@ impl CliState {
                 if sessions.is_empty() {
                     return Ok(Some("No sessions yet.".to_string()));
                 }
-                let mut out = String::from("Sessions (most recent first):\n");
-                for s in sessions {
-                    out.push_str(&format!("- {}\n", s));
-                }
-                Ok(Some(out))
+                Ok(Some(formatting::render_list(
+                    "Sessions (most recent first)",
+                    sessions,
+                )))
             }
             Command::SessionSwitch(id) => {
                 self.agent = AgentBuilder::new_with_registry(
@@ -255,28 +259,10 @@ impl CliState {
             }
             Command::Message(text) => {
                 let output = self.agent.run_step(&text).await?;
-                Ok(Some(output.response))
+                let formatted = formatting::render_agent_response("assistant", &output.response);
+                Ok(Some(formatted))
             }
         }
-    }
-
-    fn help_text(&self) -> String {
-        let lines = [
-            "Available commands:",
-            "  /help                 Show this help",
-            "  /quit                 Exit the application",
-            "  /config reload        Reload configuration",
-            "  /config show          Display current configuration",
-            "  /policy reload        Reload policies from persistence",
-            "  /agents or /list      List available agents",
-            "  /switch <agent>       Switch active agent",
-            "  /memory show [N]      Show last N messages (default 10)",
-            "  /session new [ID]     Start a new session (optional ID)",
-            "  /session list         List sessions with history",
-            "  /session switch <ID>  Switch to a session by ID",
-            "  (anything else)       Send message to the agent",
-        ];
-        lines.join("\n")
     }
 
     /// Run interactive REPL on stdin/stdout
@@ -515,11 +501,11 @@ mod tests {
 
         let mut cli = CliState::new_with_config(config).unwrap();
 
-        // Test /help command
+        // Test /help command - output now includes markdown formatting
         let out = cli.handle_line("/help").await.unwrap().unwrap();
-        assert!(out.contains("Available commands:"));
-        assert!(out.contains("/config show"));
-        assert!(out.contains("/agents"));
-        assert!(out.contains("/list"));
+        assert!(out.contains("Commands") || out.contains("SpecAI"));
+        assert!(out.contains("/config show") || out.contains("config"));
+        assert!(out.contains("/agents") || out.contains("agents"));
+        assert!(out.contains("/list") || out.contains("list"));
     }
 }

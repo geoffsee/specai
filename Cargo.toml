@@ -36,6 +36,9 @@ tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
 axum-extra = { version = "0.9", features = ["typed-header"], optional = true }
 async-openai = "0.30.1"
+termimad = "0.30"
+crossterm = "0.28"
+terminal_size = "0.4"
 
 [features]
 default = ["openai", "mlx"]
