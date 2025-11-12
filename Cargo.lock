@@ -2201,7 +2201,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai"
-version = "0.1.1"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "async-stream",
