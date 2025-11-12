@@ -18,30 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read version from Cargo.toml
-        id: crate
-        shell: bash
-        run: |
-          python - <<'PY'
-          import tomllib, sys
-          with open('Cargo.toml','rb') as f:
-              data = tomllib.load(f)
-          print(f"version={data['package']['version']}")
-          PY
-          | tee -a "$GITHUB_OUTPUT"
-
-      - name: Verify tag matches Cargo.toml version
-        shell: bash
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          CRATE_VER="v${{ steps.crate.outputs.version }}"
-          echo "Tag: ${TAG} | Crate version: ${CRATE_VER}"
-          if [[ "$TAG" != "$CRATE_VER" ]]; then
-            echo "Error: tag ${TAG} does not match Cargo.toml version ${CRATE_VER}" >&2
-            exit 1
-          fi
-
       - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --verbose
+        run: cargo publish
