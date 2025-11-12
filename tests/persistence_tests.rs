@@ -1,5 +1,5 @@
-use specai::persistence::Persistence;
-use specai::types::MessageRole;
+use spec_ai::persistence::Persistence;
+use spec_ai::types::MessageRole;
 use tempfile::tempdir;
 use serde_json::json;
 

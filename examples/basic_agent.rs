@@ -3,9 +3,9 @@
 //! Demonstrates how to create and use an agent with the mock provider.
 
 use anyhow::Result;
-use specai::agent::AgentBuilder;
-use specai::config::{AgentProfile, AppConfig};
-use specai::persistence::Persistence;
+use spec_ai::agent::AgentBuilder;
+use spec_ai::config::{AgentProfile, AppConfig};
+use spec_ai::persistence::Persistence;
 use std::path::PathBuf;
 
 #[tokio::main]

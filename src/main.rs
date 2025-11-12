@@ -1,5 +1,5 @@
 use anyhow::Result;
-use specai::cli::CliState;
+use spec_ai::cli::CliState;
 use tracing_subscriber;
 
 #[tokio::main]

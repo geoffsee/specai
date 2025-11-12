@@ -153,8 +153,8 @@ memory_k = 20
 
 #### Configuration
 ```rust
-use specai::config::{AppConfig, AgentRegistry, ConfigCache};
-use specai::persistence::Persistence;
+use spec_ai::config::{AppConfig, AgentRegistry, ConfigCache};
+use spec_ai::persistence::Persistence;
 
 // Load configuration
 let config = AppConfig::load()?;
@@ -175,7 +175,7 @@ cache.store_effective_config(&config)?;
 
 #### Persistence
 ```rust
-use specai::persistence::Persistence;
+use spec_ai::persistence::Persistence;
 
 let persistence = Persistence::new_default()?;
 

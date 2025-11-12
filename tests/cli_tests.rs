@@ -1,5 +1,5 @@
-use specai::cli::CliState;
-use specai::config::{AgentProfile, AppConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
+use spec_ai::cli::CliState;
+use spec_ai::config::{AgentProfile, AppConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
 use std::collections::HashMap;
 use tempfile::TempDir;
 

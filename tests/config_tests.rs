@@ -2,8 +2,8 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use specai::config::{AppConfig, AgentProfile};
-use specai::test_utils::env_lock;
+use spec_ai::config::{AppConfig, AgentProfile};
+use spec_ai::test_utils::env_lock;
 
 #[test]
 fn test_load_valid_basic_config() {
