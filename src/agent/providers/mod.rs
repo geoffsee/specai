@@ -10,3 +10,6 @@ pub mod anthropic;
 pub mod ollama;
 
 pub use mock::MockProvider;
+
+#[cfg(feature = "openai")]
+pub use openai::OpenAIProvider;

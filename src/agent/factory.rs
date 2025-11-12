@@ -4,6 +4,8 @@
 
 use crate::agent::model::{ModelProvider, ProviderKind};
 use crate::agent::providers::MockProvider;
+#[cfg(feature = "openai")]
+use crate::agent::providers::OpenAIProvider;
 use crate::config::ModelConfig;
 use anyhow::{anyhow, Context, Result};
 use std::sync::Arc;
@@ -26,8 +28,23 @@ pub fn create_provider(config: &ModelConfig) -> Result<Arc<dyn ModelProvider>> {
 
         #[cfg(feature = "openai")]
         ProviderKind::OpenAI => {
-            // TODO: Implement OpenAI provider
-            Err(anyhow!("OpenAI provider not yet implemented"))
+            // Get API key from config
+            let api_key = if let Some(ref source) = config.api_key_source {
+                resolve_api_key(source)?
+            } else {
+                // Default to OPENAI_API_KEY environment variable
+                load_api_key_from_env("OPENAI_API_KEY")?
+            };
+
+            // Create OpenAI provider
+            let mut provider = OpenAIProvider::with_api_key(api_key);
+
+            // Set model if specified in config
+            if let Some(ref model_name) = config.model_name {
+                provider = provider.with_model(model_name.clone());
+            }
+
+            Ok(Arc::new(provider))
         }
 
         #[cfg(feature = "anthropic")]
@@ -44,14 +61,42 @@ pub fn create_provider(config: &ModelConfig) -> Result<Arc<dyn ModelProvider>> {
     }
 }
 
-/// Load API key from environment variable or file
+/// Resolve API key from a source string
+///
+/// Supports the following formats:
+/// - `env:VAR_NAME` - Load from environment variable
+/// - `file:PATH` - Load from file
+/// - Any other string - Use as-is (direct API key)
+pub fn resolve_api_key(source: &str) -> Result<String> {
+    if let Some(env_var) = source.strip_prefix("env:") {
+        load_api_key_from_env(env_var)
+    } else if let Some(path) = source.strip_prefix("file:") {
+        load_api_key_from_file(path)
+    } else {
+        // Treat as direct API key
+        Ok(source.to_string())
+    }
+}
+
+/// Load API key from environment variable
 pub fn load_api_key_from_env(env_var: &str) -> Result<String> {
     std::env::var(env_var).context(format!("Environment variable {} not set", env_var))
 }
 
 /// Load API key from file
 pub fn load_api_key_from_file(path: &str) -> Result<String> {
-    std::fs::read_to_string(path)
+    // Handle tilde expansion manually
+    let expanded_path = if let Some(stripped) = path.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            std::path::PathBuf::from(home).join(stripped)
+        } else {
+            std::path::PathBuf::from(path)
+        }
+    } else {
+        std::path::PathBuf::from(path)
+    };
+
+    std::fs::read_to_string(&expanded_path)
         .context(format!("Failed to read API key from file: {}", path))
         .map(|s| s.trim().to_string())
 }
@@ -103,5 +148,47 @@ mod tests {
     fn test_load_api_key_env_var_missing() {
         let result = load_api_key_from_env("NONEXISTENT_VAR");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_api_key_direct() {
+        let key = resolve_api_key("sk-direct-api-key").unwrap();
+        assert_eq!(key, "sk-direct-api-key");
+    }
+
+    #[test]
+    fn test_resolve_api_key_from_env() {
+        unsafe {
+            std::env::set_var("TEST_RESOLVE_KEY", "env-resolved-value");
+        }
+        let key = resolve_api_key("env:TEST_RESOLVE_KEY").unwrap();
+        assert_eq!(key, "env-resolved-value");
+        unsafe {
+            std::env::remove_var("TEST_RESOLVE_KEY");
+        }
+    }
+
+    #[test]
+    fn test_resolve_api_key_from_file() {
+        use std::io::Write;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test_api_key.txt");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "file-api-key-value").unwrap();
+
+        let key = resolve_api_key(&format!("file:{}", file_path.display())).unwrap();
+        assert_eq!(key, "file-api-key-value");
+    }
+
+    #[test]
+    fn test_load_api_key_from_file_with_whitespace() {
+        use std::io::Write;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test_key_whitespace.txt");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "  api-key-with-spaces  ").unwrap();
+
+        let key = load_api_key_from_file(file_path.to_str().unwrap()).unwrap();
+        assert_eq!(key, "api-key-with-spaces");
     }
 }
