@@ -13,14 +13,17 @@ path = "~/.agent_cli/agent_data.duckdb"
 
 # Model configuration
 [model]
-# Model provider: "mock", "openai", "anthropic", or "ollama"
+# Model provider: "mock", "openai", "anthropic", "ollama", or "mlx"
 provider = "mock"
 
 # Model name (provider-specific, optional)
-# Examples: "gpt-4", "claude-3-opus", "llama3"
-# model_name = "gpt-4"
+# OpenAI examples: "gpt-4.1", "gpt-4.1-mini"
+# Anthropic examples: "claude-3-opus", "claude-3-sonnet"
+# Ollama examples: "llama3", "mistral"
+# MLX examples: "mlx-community/Llama-3.2-3B-Instruct-4bit"
+# model_name = "gpt-4.1"
 
-# API key source (optional)
+# API key source (optional, not needed for MLX)
 # Examples: "env:OPENAI_API_KEY", "file:~/.secrets/api_key"
 # api_key_source = "env:OPENAI_API_KEY"
 
@@ -84,6 +87,15 @@ model_name = "claude-3-opus"
 
 memory_k = 15
 
+[agents.local_mlx]
+# Local MLX agent running on Apple Silicon
+# Requires MLX server running at http://localhost:10240
+prompt = "You are a helpful assistant running locally on Apple Silicon."
+model_provider = "mlx"
+model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+temperature = 0.7
+memory_k = 10
+
 # Environment variable overrides (highest precedence):
 # AGENT_DB_PATH - Override database path
 # AGENT_MODEL_PROVIDER - Override model provider
@@ -93,3 +105,4 @@ memory_k = 15
 # AGENT_LOG_LEVEL - Override logging level
 # AGENT_UI_THEME - Override UI theme
 # AGENT_DEFAULT_AGENT - Override default agent
+# MLX_ENDPOINT - Override MLX server endpoint (default: http://localhost:10240)

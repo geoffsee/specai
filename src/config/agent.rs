@@ -101,7 +101,7 @@ impl AgentProfile {
 
         // Validate model provider if specified
         if let Some(provider) = &self.model_provider {
-            let valid_providers = vec!["mock", "openai", "anthropic", "ollama"];
+            let valid_providers = vec!["mock", "openai", "anthropic", "ollama", "mlx"];
             if !valid_providers.contains(&provider.as_str()) {
                 return Err(AgentError::Invalid(format!(
                     "model_provider must be one of: {}. Got: {}",

@@ -82,6 +82,8 @@ pub enum ProviderKind {
     Anthropic,
     #[cfg(feature = "ollama")]
     Ollama,
+    #[cfg(feature = "mlx")]
+    MLX,
 }
 
 impl ProviderKind {
@@ -94,6 +96,8 @@ impl ProviderKind {
             "anthropic" => Some(ProviderKind::Anthropic),
             #[cfg(feature = "ollama")]
             "ollama" => Some(ProviderKind::Ollama),
+            #[cfg(feature = "mlx")]
+            "mlx" => Some(ProviderKind::MLX),
             _ => None,
         }
     }
@@ -107,6 +111,8 @@ impl ProviderKind {
             ProviderKind::Anthropic => "anthropic",
             #[cfg(feature = "ollama")]
             ProviderKind::Ollama => "ollama",
+            #[cfg(feature = "mlx")]
+            ProviderKind::MLX => "mlx",
         }
     }
 }

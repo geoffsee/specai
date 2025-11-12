@@ -3,6 +3,8 @@
 //! Creates model provider instances based on configuration.
 
 use crate::agent::model::{ModelProvider, ProviderKind};
+#[cfg(feature = "mlx")]
+use crate::agent::providers::MLXProvider;
 use crate::agent::providers::MockProvider;
 #[cfg(feature = "openai")]
 use crate::agent::providers::OpenAIProvider;
@@ -57,6 +59,25 @@ pub fn create_provider(config: &ModelConfig) -> Result<Arc<dyn ModelProvider>> {
         ProviderKind::Ollama => {
             // TODO: Implement Ollama provider
             Err(anyhow!("Ollama provider not yet implemented"))
+        }
+
+        #[cfg(feature = "mlx")]
+        ProviderKind::MLX => {
+            // MLX requires a model name
+            let model_name = config
+                .model_name
+                .as_ref()
+                .ok_or_else(|| anyhow!("MLX provider requires a model_name to be specified"))?;
+
+            // Create MLX provider with default endpoint (localhost:10240)
+            // Users can customize this by setting MLX_ENDPOINT environment variable
+            let provider = if let Ok(endpoint) = std::env::var("MLX_ENDPOINT") {
+                MLXProvider::with_endpoint(endpoint, model_name)
+            } else {
+                MLXProvider::new(model_name)
+            };
+
+            Ok(Arc::new(provider))
         }
     }
 }

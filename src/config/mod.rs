@@ -268,7 +268,7 @@ impl AppConfig {
     /// Validate the configuration and return actionable errors
     pub fn validate(&self) -> Result<()> {
         // Validate model provider
-        let valid_providers = vec!["mock", "openai", "anthropic", "ollama"];
+        let valid_providers = vec!["mock", "openai", "anthropic", "ollama", "mlx"];
         if !valid_providers.contains(&self.model.provider.as_str()) {
             return Err(ConfigError::Invalid(
                 format!(
