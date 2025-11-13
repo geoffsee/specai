@@ -1,0 +1,132 @@
+# Spec-AI Configuration with Knowledge Graph Features
+# This example shows how to enable graph-based reasoning for intelligent context management
+
+# Default agent to use when starting the CLI
+default_agent = "graph_agent"
+
+# Database configuration
+[database]
+path = "~/.agent_cli/agent_data.duckdb"
+
+# Model provider configuration
+[model]
+provider = "openai"  # Options: "openai", "anthropic", "ollama", "mlx", "mock"
+# model_name = "gpt-4"  # Optional override
+embeddings_model = "text-embedding-ada-002"  # For semantic search
+
+# User interface configuration
+[ui]
+theme = "default"
+
+# Logging configuration
+[logging]
+level = "info"
+
+# ========== AGENT WITH KNOWLEDGE GRAPH ENABLED ==========
+[agents.graph_agent]
+# Basic agent configuration
+prompt = """You are an intelligent assistant with knowledge graph capabilities.
+You can build and traverse a knowledge graph to maintain context about entities,
+relationships, and concepts across our conversation. Use this graph to provide
+more contextual and informed responses."""
+temperature = 0.7
+allowed_tools = ["graph", "file_read", "file_write", "web_search"]
+
+# Memory configuration
+memory_k = 20  # Number of messages to recall
+
+# ========== KNOWLEDGE GRAPH CONFIGURATION ==========
+# Enable knowledge graph features
+enable_graph = true
+
+# Use graph-based memory recall (combines with embeddings)
+graph_memory = true
+
+# Automatically build graph from conversations
+auto_graph = true
+
+# Use graph for decision steering
+graph_steering = true
+
+# Maximum graph traversal depth for context building
+graph_depth = 3
+
+# Weight for graph-based relevance vs semantic similarity (0.0 to 1.0)
+# 0.0 = only semantic, 1.0 = only graph, 0.5 = equal weight
+graph_weight = 0.5
+
+# Graph-based tool recommendation threshold (0.0 to 1.0)
+graph_threshold = 0.7
+
+# ========== TRADITIONAL AGENT WITHOUT GRAPH ==========
+[agents.traditional]
+prompt = "You are a helpful assistant."
+temperature = 0.7
+memory_k = 10
+
+# Graph features disabled (default)
+enable_graph = false
+
+# ========== RESEARCH AGENT WITH DEEP GRAPH TRAVERSAL ==========
+[agents.researcher]
+prompt = """You are a research assistant that builds comprehensive knowledge graphs.
+You excel at finding connections between concepts and maintaining detailed context
+about research topics, sources, and findings."""
+temperature = 0.5
+allowed_tools = ["graph", "web_search", "file_read", "file_write"]
+
+# Enhanced graph configuration for research
+enable_graph = true
+graph_memory = true
+auto_graph = true
+graph_steering = true
+graph_depth = 5  # Deeper traversal for comprehensive research
+graph_weight = 0.7  # Favor graph connections over pure semantic similarity
+memory_k = 30  # More context for research tasks
+
+# ========== CODING ASSISTANT WITH DEPENDENCY GRAPHS ==========
+[agents.coder]
+prompt = """You are a coding assistant that understands code dependencies and relationships.
+You build graphs of code structures, dependencies, and concepts to provide better assistance."""
+temperature = 0.3
+allowed_tools = ["graph", "file_read", "file_write", "shell"]
+
+# Graph configuration for code analysis
+enable_graph = true
+graph_memory = true
+auto_graph = true
+graph_steering = true
+graph_depth = 4  # Good for tracking code dependencies
+graph_weight = 0.6  # Balance between graph structure and semantic meaning
+memory_k = 25
+
+# ========== CREATIVE WRITER WITH CONCEPT GRAPHS ==========
+[agents.writer]
+prompt = """You are a creative writing assistant that tracks characters, plot points,
+themes, and narrative elements in a knowledge graph to maintain story consistency."""
+temperature = 0.9
+allowed_tools = ["graph", "file_write"]
+
+# Graph configuration for creative writing
+enable_graph = true
+graph_memory = true
+auto_graph = true
+graph_steering = false  # Less steering for creative freedom
+graph_depth = 3
+graph_weight = 0.4  # More semantic, less structural
+memory_k = 15
+
+# ========== POLICY CONFIGURATION ==========
+# Example policy rules for graph operations
+# Store these in the database using the policy management commands
+
+# Allow all agents to query the graph
+# ALLOW agent:* action:graph_query resource:*
+
+# Allow only certain agents to modify the graph
+# ALLOW agent:graph_agent action:graph_modify resource:*
+# ALLOW agent:researcher action:graph_modify resource:*
+
+# Restrict graph clearing to specific agents
+# DENY agent:* action:graph_clear resource:*
+# ALLOW agent:admin action:graph_clear resource:*

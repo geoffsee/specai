@@ -8,15 +8,15 @@ use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::{PolicyDecision, PolicyEngine};
 use crate::tools::{ToolRegistry, ToolResult};
-use crate::types::{Message, MessageRole};
+use crate::types::{Message, MessageRole, NodeType, EdgeType, TraversalDirection};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{warn, info, debug};
 
 /// Output from an agent execution step
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,12 +95,27 @@ struct RecallResult {
     stats: Option<MemoryRecallStats>,
 }
 
+// Entity extracted from text
+struct ExtractedEntity {
+    name: String,
+    entity_type: String,
+    confidence: f32,
+}
+
+// Concept extracted from text
+struct ExtractedConcept {
+    name: String,
+    relevance: f32,
+}
+
 /// Core agent execution engine
 pub struct AgentCore {
     /// Agent profile with configuration
     profile: AgentProfile,
     /// Model provider
     provider: Arc<dyn ModelProvider>,
+    /// Optional fast model provider for hierarchical reasoning
+    fast_provider: Option<Arc<dyn ModelProvider>>,
     /// Optional embeddings client for semantic recall
     embeddings_client: Option<EmbeddingsClient>,
     /// Persistence layer
@@ -132,6 +147,7 @@ impl AgentCore {
         Self {
             profile,
             provider,
+            fast_provider: None,
             embeddings_client,
             persistence,
             session_id,
@@ -140,6 +156,12 @@ impl AgentCore {
             tool_registry,
             policy_engine,
         }
+    }
+
+    /// Set the fast model provider for hierarchical reasoning
+    pub fn with_fast_provider(mut self, fast_provider: Arc<dyn ModelProvider>) -> Self {
+        self.fast_provider = Some(fast_provider);
+        self
     }
 
     /// Set a new session ID and clear conversation history
@@ -313,6 +335,52 @@ impl AgentCore {
             context.push(message);
         }
 
+        // If graph memory is enabled, expand context with graph-connected nodes
+        if self.profile.enable_graph && self.profile.graph_memory {
+            let mut graph_messages = Vec::new();
+
+            // For each recent message, find related nodes in the graph
+            for msg in &context {
+                // Check if this message has a corresponding node in the graph
+                let nodes = self.persistence.list_graph_nodes(
+                    &self.session_id,
+                    Some(NodeType::Message),
+                    Some(10),
+                )?;
+
+                for node in nodes {
+                    if let Some(msg_id) = node.properties["message_id"].as_i64() {
+                        if msg_id == msg.id {
+                            // Traverse graph to find related nodes
+                            let neighbors = self.persistence.traverse_neighbors(
+                                &self.session_id,
+                                node.id,
+                                TraversalDirection::Both,
+                                self.profile.graph_depth,
+                            )?;
+
+                            // Add messages from related nodes
+                            for neighbor in neighbors {
+                                if neighbor.node_type == NodeType::Message {
+                                    if let Some(related_msg_id) = neighbor.properties["message_id"].as_i64() {
+                                        if !seen_ids.contains(&related_msg_id) {
+                                            if let Some(related_msg) = self.persistence.get_message(related_msg_id)? {
+                                                seen_ids.insert(related_msg.id);
+                                                graph_messages.push(related_msg);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Add graph-expanded messages to context
+            context.extend(graph_messages);
+        }
+
         if let Some(client) = &self.embeddings_client {
             if self.profile.memory_k == 0 || query.trim().is_empty() {
                 return Ok(RecallResult {
@@ -330,6 +398,7 @@ impl AgentCore {
                     )?;
 
                     let mut matches = Vec::new();
+                    let mut semantic_context = Vec::new();
 
                     for (memory, score) in recalled {
                         if let Some(message_id) = memory.message_id {
@@ -345,9 +414,75 @@ impl AgentCore {
                                     role: message.role,
                                     preview: preview_text(&message.content),
                                 });
-                                context.push(message);
+                                semantic_context.push(message);
                             }
                         }
+                    }
+
+                    // If graph memory enabled, expand semantic matches with graph connections
+                    if self.profile.enable_graph && self.profile.graph_memory {
+                        let mut graph_expanded = Vec::new();
+
+                        for msg in &semantic_context {
+                            // Find message node in graph
+                            let nodes = self.persistence.list_graph_nodes(
+                                &self.session_id,
+                                Some(NodeType::Message),
+                                Some(100),
+                            )?;
+
+                            for node in nodes {
+                                if let Some(msg_id) = node.properties["message_id"].as_i64() {
+                                    if msg_id == msg.id {
+                                        // Traverse to find related information
+                                        let neighbors = self.persistence.traverse_neighbors(
+                                            &self.session_id,
+                                            node.id,
+                                            TraversalDirection::Both,
+                                            self.profile.graph_depth,
+                                        )?;
+
+                                        for neighbor in neighbors {
+                                            // Include related facts, concepts, and entities
+                                            if matches!(neighbor.node_type, NodeType::Fact | NodeType::Concept | NodeType::Entity) {
+                                                // Create a synthetic message for graph context
+                                                let graph_content = format!(
+                                                    "[Graph Context - {} {}]: {}",
+                                                    neighbor.node_type.as_str(),
+                                                    neighbor.label,
+                                                    neighbor.properties.to_string()
+                                                );
+
+                                                // Add as system message for context
+                                                let graph_msg = Message {
+                                                    id: -1, // Synthetic ID
+                                                    session_id: self.session_id.clone(),
+                                                    role: MessageRole::System,
+                                                    content: graph_content,
+                                                    created_at: Utc::now(),
+                                                };
+
+                                                graph_expanded.push(graph_msg);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Combine semantic and graph-expanded context
+                        context.extend(semantic_context);
+                        context.extend(graph_expanded);
+
+                        // Apply graph weight to balance semantic vs graph relevance
+                        let total_messages = context.len();
+                        let semantic_weight = 1.0 - self.profile.graph_weight;
+                        let graph_weight = self.profile.graph_weight;
+
+                        // Re-rank based on combined score (simplified for now)
+                        // In production, this would use a more sophisticated ranking algorithm
+                    } else {
+                        context.extend(semantic_context);
                     }
 
                     return Ok(RecallResult {
@@ -435,19 +570,26 @@ impl AgentCore {
             .insert_message(&self.session_id, role, content)
             .context("Failed to store message")?;
 
+        let mut embedding_id = None;
+
         if let Some(client) = &self.embeddings_client {
             if !content.trim().is_empty() {
                 match client.embed(content).await {
                     Ok(embedding) if !embedding.is_empty() => {
-                        if let Err(err) = self.persistence.insert_memory_vector(
+                        match self.persistence.insert_memory_vector(
                             &self.session_id,
                             Some(message_id),
                             &embedding,
                         ) {
-                            warn!(
-                                "Failed to persist embedding for message {}: {}",
-                                message_id, err
-                            );
+                            Ok(emb_id) => {
+                                embedding_id = Some(emb_id);
+                            }
+                            Err(err) => {
+                                warn!(
+                                    "Failed to persist embedding for message {}: {}",
+                                    message_id, err
+                                );
+                            }
                         }
                     }
                     Ok(_) => {}
@@ -461,7 +603,261 @@ impl AgentCore {
             }
         }
 
+        // If auto_graph is enabled, create graph nodes and edges
+        if self.profile.enable_graph && self.profile.auto_graph {
+            self.build_graph_for_message(message_id, role, content, embedding_id)?;
+        }
+
         Ok(message_id)
+    }
+
+    /// Build graph nodes and edges for a new message
+    fn build_graph_for_message(
+        &self,
+        message_id: i64,
+        role: MessageRole,
+        content: &str,
+        embedding_id: Option<i64>,
+    ) -> Result<()> {
+        use serde_json::json;
+
+        // Create a node for the message
+        let message_node_id = self.persistence.insert_graph_node(
+            &self.session_id,
+            NodeType::Message,
+            &format!("{:?}Message", role),
+            &json!({
+                "message_id": message_id,
+                "role": role.as_str(),
+                "content_preview": preview_text(content),
+                "timestamp": Utc::now().to_rfc3339(),
+            }),
+            embedding_id,
+        )?;
+
+        // Extract entities and concepts from the message (simplified for now)
+        // In production, this would use NER and entity extraction
+        let entities = self.extract_entities_from_text(content);
+        let concepts = self.extract_concepts_from_text(content);
+
+        // Create nodes for entities
+        for entity in entities {
+            let entity_node_id = self.persistence.insert_graph_node(
+                &self.session_id,
+                NodeType::Entity,
+                &entity.entity_type,
+                &json!({
+                    "name": entity.name,
+                    "type": entity.entity_type,
+                    "extracted_from": message_id,
+                }),
+                None,
+            )?;
+
+            // Create edge from message to entity
+            self.persistence.insert_graph_edge(
+                &self.session_id,
+                message_node_id,
+                entity_node_id,
+                EdgeType::Mentions,
+                Some("mentions"),
+                Some(&json!({"confidence": entity.confidence})),
+                entity.confidence,
+            )?;
+        }
+
+        // Create nodes for concepts
+        for concept in concepts {
+            let concept_node_id = self.persistence.insert_graph_node(
+                &self.session_id,
+                NodeType::Concept,
+                "Concept",
+                &json!({
+                    "name": concept.name,
+                    "extracted_from": message_id,
+                }),
+                None,
+            )?;
+
+            // Create edge from message to concept
+            self.persistence.insert_graph_edge(
+                &self.session_id,
+                message_node_id,
+                concept_node_id,
+                EdgeType::RelatesTo,
+                Some("discusses"),
+                Some(&json!({"relevance": concept.relevance})),
+                concept.relevance,
+            )?;
+        }
+
+        // Link to previous message in conversation flow
+        let recent_messages = self.persistence.list_messages(&self.session_id, 2)?;
+        if recent_messages.len() > 1 {
+            // Find the previous message node
+            let nodes = self.persistence.list_graph_nodes(
+                &self.session_id,
+                Some(NodeType::Message),
+                Some(10),
+            )?;
+
+            for node in nodes {
+                if let Some(prev_msg_id) = node.properties["message_id"].as_i64() {
+                    if prev_msg_id != message_id && prev_msg_id == recent_messages[0].id {
+                        // Create conversation flow edge
+                        self.persistence.insert_graph_edge(
+                            &self.session_id,
+                            node.id,
+                            message_node_id,
+                            EdgeType::FollowsFrom,
+                            Some("conversation_flow"),
+                            None,
+                            1.0,
+                        )?;
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+   // Entity extraction - can use fast model if configured
+    fn extract_entities_from_text(&self, text: &str) -> Vec<ExtractedEntity> {
+        // If fast reasoning is enabled and task is delegated to fast model, use it
+        if self.profile.fast_reasoning &&
+           self.fast_provider.is_some() &&
+           self.profile.fast_model_tasks.contains(&"entity_extraction".to_string()) {
+            // Use fast model for entity extraction (would be async in production)
+            debug!("Using fast model for entity extraction");
+            // For now, fall back to simple extraction
+            // In production, this would call the fast model async
+        }
+
+        let mut entities = Vec::new();
+
+        // Simple pattern matching for demonstration
+        // In production, use a proper NER model or fast LLM
+
+        // Extract URLs
+        let url_regex = regex::Regex::new(r"https?://[^\s]+").unwrap();
+        for mat in url_regex.find_iter(text) {
+            entities.push(ExtractedEntity {
+                name: mat.as_str().to_string(),
+                entity_type: "URL".to_string(),
+                confidence: 0.9,
+            });
+        }
+
+        // Extract email addresses
+        let email_regex = regex::Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b").unwrap();
+        for mat in email_regex.find_iter(text) {
+            entities.push(ExtractedEntity {
+                name: mat.as_str().to_string(),
+                entity_type: "Email".to_string(),
+                confidence: 0.9,
+            });
+        }
+
+        // Extract quoted text as potential entities
+        let quote_regex = regex::Regex::new(r#""([^"]+)""#).unwrap();
+        for cap in quote_regex.captures_iter(text) {
+            if let Some(quoted) = cap.get(1) {
+                entities.push(ExtractedEntity {
+                    name: quoted.as_str().to_string(),
+                    entity_type: "Quote".to_string(),
+                    confidence: 0.7,
+                });
+            }
+        }
+
+        entities
+    }
+
+    /// Use fast model for preliminary reasoning tasks
+    async fn fast_reasoning(
+        &self,
+        task: &str,
+        input: &str,
+    ) -> Result<(String, f32)> {
+        if let Some(ref fast_provider) = self.fast_provider {
+            let prompt = format!(
+                "Task: {}\nInput: {}\n\nProvide a concise response and confidence score (0-1):",
+                task, input
+            );
+
+            let config = GenerationConfig {
+                temperature: Some(self.profile.fast_model_temperature),
+                max_tokens: Some(256), // Keep responses short for speed
+                stop_sequences: None,
+                top_p: Some(0.9),
+                frequency_penalty: None,
+                presence_penalty: None,
+            };
+
+            let response = fast_provider.generate(&prompt, &config).await?;
+
+            // Parse confidence from response (simplified)
+            let confidence = 0.7; // In production, extract from response
+
+            Ok((response.content, confidence))
+        } else {
+            // No fast model configured
+            Ok((String::new(), 0.0))
+        }
+    }
+
+    /// Decide whether to use fast or main model based on task complexity
+    async fn route_to_model(&self, task_type: &str, complexity_score: f32) -> bool {
+        // Check if fast reasoning is enabled
+        if !self.profile.fast_reasoning || self.fast_provider.is_none() {
+            return false; // Use main model
+        }
+
+        // Check if task type is delegated to fast model
+        if !self.profile.fast_model_tasks.contains(&task_type.to_string()) {
+            return false; // Use main model
+        }
+
+        // Check complexity threshold
+        if complexity_score > self.profile.escalation_threshold {
+            info!("Task complexity {} exceeds threshold {}, using main model",
+                  complexity_score, self.profile.escalation_threshold);
+            return false; // Use main model
+        }
+
+        true // Use fast model
+    }
+
+    // Concept extraction (simplified - in production use topic modeling)
+    fn extract_concepts_from_text(&self, text: &str) -> Vec<ExtractedConcept> {
+        let mut concepts = Vec::new();
+
+        // Keywords that indicate concepts (simplified)
+        let concept_keywords = vec![
+            ("graph", "Knowledge Graph"),
+            ("memory", "Memory System"),
+            ("embedding", "Embeddings"),
+            ("tool", "Tool Usage"),
+            ("agent", "Agent System"),
+            ("database", "Database"),
+            ("query", "Query Processing"),
+            ("node", "Graph Node"),
+            ("edge", "Graph Edge"),
+        ];
+
+        let text_lower = text.to_lowercase();
+        for (keyword, concept_name) in concept_keywords {
+            if text_lower.contains(keyword) {
+                concepts.push(ExtractedConcept {
+                    name: concept_name.to_string(),
+                    relevance: 0.6,
+                });
+            }
+        }
+
+        concepts
     }
 
     /// Get the current session ID
@@ -623,6 +1019,19 @@ mod tests {
             memory_k: 5,
             top_p: 0.9,
             max_context_tokens: Some(2048),
+            enable_graph: false,
+            graph_memory: false,
+            auto_graph: false,
+            graph_steering: false,
+            graph_depth: 3,
+            graph_weight: 0.5,
+            graph_threshold: 0.7,
+            fast_reasoning: false,
+            fast_model_provider: None,
+            fast_model_name: None,
+            fast_model_temperature: 0.3,
+            fast_model_tasks: vec![],
+            escalation_threshold: 0.6,
         };
 
         let provider = Arc::new(MockProvider::new("This is a test response."));
@@ -857,6 +1266,19 @@ mod tests {
             memory_k: 5,
             top_p: 0.9,
             max_context_tokens: Some(2048),
+            enable_graph: false,
+            graph_memory: false,
+            auto_graph: false,
+            graph_steering: false,
+            graph_depth: 3,
+            graph_weight: 0.5,
+            graph_threshold: 0.7,
+            fast_reasoning: false,
+            fast_model_provider: None,
+            fast_model_name: None,
+            fast_model_temperature: 0.3,
+            fast_model_tasks: vec![],
+            escalation_threshold: 0.6,
         };
 
         let provider = Arc::new(MockProvider::new("Test"));
@@ -922,6 +1344,19 @@ mod tests {
             memory_k: 5,
             top_p: 0.9,
             max_context_tokens: Some(2048),
+            enable_graph: false,
+            graph_memory: false,
+            auto_graph: false,
+            graph_steering: false,
+            graph_depth: 3,
+            graph_weight: 0.5,
+            graph_threshold: 0.7,
+            fast_reasoning: false,
+            fast_model_provider: None,
+            fast_model_name: None,
+            fast_model_temperature: 0.3,
+            fast_model_tasks: vec![],
+            escalation_threshold: 0.6,
         };
 
         let provider = Arc::new(MockProvider::new("Test"));

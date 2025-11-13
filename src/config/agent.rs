@@ -51,6 +51,62 @@ pub struct AgentProfile {
     /// Maximum context window size for this agent
     #[serde(default)]
     pub max_context_tokens: Option<usize>,
+
+    // ========== Knowledge Graph Configuration ==========
+
+    /// Enable knowledge graph features for this agent
+    #[serde(default)]
+    pub enable_graph: bool,
+
+    /// Use graph-based memory recall (combines with embeddings)
+    #[serde(default)]
+    pub graph_memory: bool,
+
+    /// Maximum graph traversal depth for context building
+    #[serde(default = "AgentProfile::default_graph_depth")]
+    pub graph_depth: usize,
+
+    /// Weight for graph-based relevance vs semantic similarity (0.0 to 1.0)
+    #[serde(default = "AgentProfile::default_graph_weight")]
+    pub graph_weight: f32,
+
+    /// Automatically build graph from conversations
+    #[serde(default)]
+    pub auto_graph: bool,
+
+    /// Graph-based tool recommendation threshold (0.0 to 1.0)
+    #[serde(default = "AgentProfile::default_graph_threshold")]
+    pub graph_threshold: f32,
+
+    /// Use graph for decision steering
+    #[serde(default)]
+    pub graph_steering: bool,
+
+    // ========== Multi-Model Reasoning Configuration ==========
+
+    /// Enable fast reasoning with a smaller model
+    #[serde(default)]
+    pub fast_reasoning: bool,
+
+    /// Model provider for fast reasoning (e.g., "mlx", "ollama")
+    #[serde(default)]
+    pub fast_model_provider: Option<String>,
+
+    /// Model name for fast reasoning (e.g., "mlx-community/Llama-3.2-3B-Instruct-4bit")
+    #[serde(default)]
+    pub fast_model_name: Option<String>,
+
+    /// Temperature for fast model (typically lower for consistency)
+    #[serde(default = "AgentProfile::default_fast_temperature")]
+    pub fast_model_temperature: f32,
+
+    /// Tasks to delegate to fast model
+    #[serde(default = "AgentProfile::default_fast_tasks")]
+    pub fast_model_tasks: Vec<String>,
+
+    /// Confidence threshold to escalate to main model
+    #[serde(default = "AgentProfile::default_escalation_threshold")]
+    pub escalation_threshold: f32,
 }
 
 impl AgentProfile {
@@ -60,6 +116,36 @@ impl AgentProfile {
 
     fn default_top_p() -> f32 {
         0.9
+    }
+
+    fn default_graph_depth() -> usize {
+        3
+    }
+
+    fn default_graph_weight() -> f32 {
+        0.5  // Equal weight to graph and semantic
+    }
+
+    fn default_graph_threshold() -> f32 {
+        0.7  // Recommend tools with >70% relevance
+    }
+
+    fn default_fast_temperature() -> f32 {
+        0.3  // Lower temperature for consistency in fast model
+    }
+
+    fn default_fast_tasks() -> Vec<String> {
+        vec![
+            "entity_extraction".to_string(),
+            "graph_analysis".to_string(),
+            "decision_routing".to_string(),
+            "tool_selection".to_string(),
+            "confidence_scoring".to_string(),
+        ]
+    }
+
+    fn default_escalation_threshold() -> f32 {
+        0.6  // Escalate to main model if confidence < 60%
     }
 
     /// Validate the agent profile configuration
@@ -80,6 +166,24 @@ impl AgentProfile {
             return Err(AgentError::Invalid(format!(
                 "top_p must be between 0.0 and 1.0, got {}",
                 self.top_p
+            ))
+            .into());
+        }
+
+        // Validate graph_weight
+        if self.graph_weight < 0.0 || self.graph_weight > 1.0 {
+            return Err(AgentError::Invalid(format!(
+                "graph_weight must be between 0.0 and 1.0, got {}",
+                self.graph_weight
+            ))
+            .into());
+        }
+
+        // Validate graph_threshold
+        if self.graph_threshold < 0.0 || self.graph_threshold > 1.0 {
+            return Err(AgentError::Invalid(format!(
+                "graph_threshold must be between 0.0 and 1.0, got {}",
+                self.graph_threshold
             ))
             .into());
         }
@@ -162,6 +266,19 @@ impl Default for AgentProfile {
             memory_k: Self::default_memory_k(),
             top_p: Self::default_top_p(),
             max_context_tokens: None,
+            enable_graph: true,  // Enable by default
+            graph_memory: true,  // Enable by default
+            graph_depth: Self::default_graph_depth(),
+            graph_weight: Self::default_graph_weight(),
+            auto_graph: true,  // Enable by default
+            graph_threshold: Self::default_graph_threshold(),
+            graph_steering: true,  // Enable by default
+            fast_reasoning: true,  // Enable multi-model by default
+            fast_model_provider: Some("mlx".to_string()),  // Default to MLX for Apple Silicon
+            fast_model_name: Some("mlx-community/Llama-3.2-3B-Instruct-4bit".to_string()),
+            fast_model_temperature: Self::default_fast_temperature(),
+            fast_model_tasks: Self::default_fast_tasks(),
+            escalation_threshold: Self::default_escalation_threshold(),
         }
     }
 }
@@ -175,6 +292,20 @@ mod tests {
         let profile = AgentProfile::default();
         assert_eq!(profile.memory_k, 10);
         assert_eq!(profile.top_p, 0.9);
+
+        // Verify multi-model is enabled by default
+        assert!(profile.fast_reasoning);
+        assert_eq!(profile.fast_model_provider, Some("mlx".to_string()));
+        assert_eq!(profile.fast_model_name, Some("mlx-community/Llama-3.2-3B-Instruct-4bit".to_string()));
+        assert_eq!(profile.fast_model_temperature, 0.3);
+        assert_eq!(profile.escalation_threshold, 0.6);
+
+        // Verify knowledge graph is enabled by default
+        assert!(profile.enable_graph);
+        assert!(profile.graph_memory);
+        assert!(profile.auto_graph);
+        assert!(profile.graph_steering);
+
         assert!(profile.validate().is_ok());
     }
 

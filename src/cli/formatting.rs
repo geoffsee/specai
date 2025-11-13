@@ -223,6 +223,16 @@ Manage multiple conversation sessions:
 - **`/session load <id>`** — Load a specific session
 - **`/session delete <id>`** — Delete a session
 
+## Knowledge Graph
+AI reasoning with graph-based memory:
+
+- **`/graph enable`** — Enable knowledge graph features
+  - Activates graph memory and automatic entity extraction
+- **`/graph disable`** — Disable knowledge graph features
+- **`/graph status`** — Show current graph configuration
+- **`/graph show [N]`** — Display last N graph nodes (default: 10)
+- **`/graph clear`** — Clear graph for current session
+
 ## General Commands
 - **`/help`** — Show this help message
 - **`/quit`** or **`/exit`** — Exit the REPL

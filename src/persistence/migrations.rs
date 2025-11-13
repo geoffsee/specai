@@ -24,6 +24,11 @@ pub fn run(conn: &Connection) -> Result<()> {
         set_version(conn, 2)?;
     }
 
+    if current < 3 {
+        apply_v3(conn)?;
+        set_version(conn, 3)?;
+    }
+
     Ok(())
 }
 
@@ -99,4 +104,77 @@ fn apply_v2(conn: &Connection) -> Result<()> {
         "#,
     )
     .context("applying v2 schema (tool telemetry columns)")
+}
+
+fn apply_v3(conn: &Connection) -> Result<()> {
+    // Knowledge graph tables with DuckPGQ support
+    conn.execute_batch(
+        r#"
+        -- Install DuckPGQ extension for graph capabilities
+        -- Note: DuckPGQ requires DuckDB v1.1.3+
+        -- For now, we'll create the tables without the extension
+        -- Users can manually install DuckPGQ when available
+
+        -- Sequences for graph tables
+        CREATE SEQUENCE IF NOT EXISTS graph_nodes_id_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS graph_edges_id_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS graph_metadata_id_seq START 1;
+
+        -- Graph nodes table
+        CREATE TABLE IF NOT EXISTS graph_nodes (
+            id BIGINT PRIMARY KEY DEFAULT nextval('graph_nodes_id_seq'),
+            session_id TEXT NOT NULL,
+            node_type TEXT NOT NULL,  -- 'entity', 'concept', 'fact', 'message', 'tool_result'
+            label TEXT NOT NULL,       -- semantic label (Person, Location, Action, etc.)
+            properties TEXT NOT NULL,  -- JSON properties specific to node type
+            embedding_id BIGINT,       -- FK to memory_vectors for semantic search
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (embedding_id) REFERENCES memory_vectors(id)
+        );
+
+        -- Graph edges table
+        CREATE TABLE IF NOT EXISTS graph_edges (
+            id BIGINT PRIMARY KEY DEFAULT nextval('graph_edges_id_seq'),
+            session_id TEXT NOT NULL,
+            source_id BIGINT NOT NULL,
+            target_id BIGINT NOT NULL,
+            edge_type TEXT NOT NULL,   -- 'RELATES_TO', 'CAUSED_BY', 'PART_OF', 'MENTIONS', etc.
+            predicate TEXT,            -- RDF-style predicate for triple store
+            properties TEXT,           -- JSON for edge metadata
+            weight REAL DEFAULT 1.0,   -- for weighted graphs
+            temporal_start TIMESTAMP,  -- for temporal graphs
+            temporal_end TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (source_id) REFERENCES graph_nodes(id),
+            FOREIGN KEY (target_id) REFERENCES graph_nodes(id)
+        );
+
+        -- Graph metadata table
+        CREATE TABLE IF NOT EXISTS graph_metadata (
+            id BIGINT PRIMARY KEY DEFAULT nextval('graph_metadata_id_seq'),
+            session_id TEXT NOT NULL,
+            graph_name TEXT NOT NULL,
+            is_created BOOLEAN DEFAULT FALSE,  -- Track if DuckPGQ graph object exists
+            schema_version INTEGER DEFAULT 1,
+            config TEXT,  -- JSON config for graph-specific settings
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(session_id, graph_name)
+        );
+
+        -- Create indexes for performance
+        CREATE INDEX IF NOT EXISTS idx_graph_nodes_session ON graph_nodes(session_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_nodes_type ON graph_nodes(node_type);
+        CREATE INDEX IF NOT EXISTS idx_graph_nodes_label ON graph_nodes(label);
+        CREATE INDEX IF NOT EXISTS idx_graph_nodes_embedding ON graph_nodes(embedding_id);
+
+        CREATE INDEX IF NOT EXISTS idx_graph_edges_session ON graph_edges(session_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_edges_source ON graph_edges(source_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges(target_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_edges_type ON graph_edges(edge_type);
+        CREATE INDEX IF NOT EXISTS idx_graph_edges_temporal ON graph_edges(temporal_start, temporal_end);
+        "#,
+    )
+    .context("applying v3 schema (knowledge graph tables)")
 }

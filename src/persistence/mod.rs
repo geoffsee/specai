@@ -7,7 +7,10 @@ use duckdb::{Connection, params};
 use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
 
-use crate::types::{MemoryVector, Message, MessageRole, PolicyEntry};
+use crate::types::{
+    EdgeType, GraphEdge, GraphNode, GraphPath,
+    MemoryVector, Message, MessageRole, NodeType, PolicyEntry, TraversalDirection,
+};
 
 #[derive(Clone, Debug)]
 pub struct Persistence {
@@ -263,4 +266,426 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         return 0.0;
     }
     dot / (na.sqrt() * nb.sqrt())
+}
+
+// ========== Knowledge Graph Methods ==========
+
+impl Persistence {
+    // ---------- Graph Node Operations ----------
+
+    pub fn insert_graph_node(
+        &self,
+        session_id: &str,
+        node_type: NodeType,
+        label: &str,
+        properties: &JsonValue,
+        embedding_id: Option<i64>,
+    ) -> Result<i64> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "INSERT INTO graph_nodes (session_id, node_type, label, properties, embedding_id)
+             VALUES (?, ?, ?, ?, ?) RETURNING id",
+        )?;
+        let id: i64 = stmt.query_row(
+            params![
+                session_id,
+                node_type.as_str(),
+                label,
+                properties.to_string(),
+                embedding_id,
+            ],
+            |row| row.get(0),
+        )?;
+        Ok(id)
+    }
+
+    pub fn get_graph_node(&self, node_id: i64) -> Result<Option<GraphNode>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, node_type, label, properties, embedding_id,
+                    CAST(created_at AS TEXT), CAST(updated_at AS TEXT)
+             FROM graph_nodes WHERE id = ?",
+        )?;
+        let mut rows = stmt.query(params![node_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(Self::row_to_graph_node(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list_graph_nodes(
+        &self,
+        session_id: &str,
+        node_type: Option<NodeType>,
+        limit: Option<i64>,
+    ) -> Result<Vec<GraphNode>> {
+        let conn = self.conn()?;
+
+        let nodes = if let Some(nt) = node_type {
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, node_type, label, properties, embedding_id,
+                        CAST(created_at AS TEXT), CAST(updated_at AS TEXT)
+                 FROM graph_nodes WHERE session_id = ? AND node_type = ?
+                 ORDER BY id DESC LIMIT ?",
+            )?;
+            let query = stmt.query(params![session_id, nt.as_str(), limit.unwrap_or(100)])?;
+            Self::collect_graph_nodes(query)?
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, node_type, label, properties, embedding_id,
+                        CAST(created_at AS TEXT), CAST(updated_at AS TEXT)
+                 FROM graph_nodes WHERE session_id = ?
+                 ORDER BY id DESC LIMIT ?",
+            )?;
+            let query = stmt.query(params![session_id, limit.unwrap_or(100)])?;
+            Self::collect_graph_nodes(query)?
+        };
+
+        Ok(nodes)
+    }
+
+    pub fn update_graph_node(&self, node_id: i64, properties: &JsonValue) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE graph_nodes SET properties = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            params![properties.to_string(), node_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_graph_node(&self, node_id: i64) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM graph_nodes WHERE id = ?", params![node_id])?;
+        Ok(())
+    }
+
+    // ---------- Graph Edge Operations ----------
+
+    pub fn insert_graph_edge(
+        &self,
+        session_id: &str,
+        source_id: i64,
+        target_id: i64,
+        edge_type: EdgeType,
+        predicate: Option<&str>,
+        properties: Option<&JsonValue>,
+        weight: f32,
+    ) -> Result<i64> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "INSERT INTO graph_edges (session_id, source_id, target_id, edge_type, predicate, properties, weight)
+             VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        )?;
+        let props_str = properties.map(|p| p.to_string());
+        let id: i64 = stmt.query_row(
+            params![
+                session_id,
+                source_id,
+                target_id,
+                edge_type.as_str(),
+                predicate,
+                props_str,
+                weight,
+            ],
+            |row| row.get(0),
+        )?;
+        Ok(id)
+    }
+
+    pub fn get_graph_edge(&self, edge_id: i64) -> Result<Option<GraphEdge>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
+                    CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
+             FROM graph_edges WHERE id = ?",
+        )?;
+        let mut rows = stmt.query(params![edge_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(Self::row_to_graph_edge(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list_graph_edges(
+        &self,
+        session_id: &str,
+        source_id: Option<i64>,
+        target_id: Option<i64>,
+    ) -> Result<Vec<GraphEdge>> {
+        let conn = self.conn()?;
+
+        let edges = match (source_id, target_id) {
+            (Some(src), Some(tgt)) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
+                            CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
+                     FROM graph_edges WHERE session_id = ? AND source_id = ? AND target_id = ?",
+                )?;
+                let query = stmt.query(params![session_id, src, tgt])?;
+                Self::collect_graph_edges(query)?
+            }
+            (Some(src), None) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
+                            CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
+                     FROM graph_edges WHERE session_id = ? AND source_id = ?",
+                )?;
+                let query = stmt.query(params![session_id, src])?;
+                Self::collect_graph_edges(query)?
+            }
+            (None, Some(tgt)) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
+                            CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
+                     FROM graph_edges WHERE session_id = ? AND target_id = ?",
+                )?;
+                let query = stmt.query(params![session_id, tgt])?;
+                Self::collect_graph_edges(query)?
+            }
+            (None, None) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
+                            CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
+                     FROM graph_edges WHERE session_id = ?",
+                )?;
+                let query = stmt.query(params![session_id])?;
+                Self::collect_graph_edges(query)?
+            }
+        };
+
+        Ok(edges)
+    }
+
+    pub fn delete_graph_edge(&self, edge_id: i64) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM graph_edges WHERE id = ?", params![edge_id])?;
+        Ok(())
+    }
+
+    // ---------- Graph Traversal Operations ----------
+
+    pub fn find_shortest_path(
+        &self,
+        session_id: &str,
+        source_id: i64,
+        target_id: i64,
+        max_hops: Option<usize>,
+    ) -> Result<Option<GraphPath>> {
+        // Simple BFS implementation for finding shortest path
+        // In production, this would use DuckPGQ's ANY SHORTEST functionality
+        let max_depth = max_hops.unwrap_or(10);
+
+        let mut visited = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+        let mut parent_map = std::collections::HashMap::new();
+
+        queue.push_back((source_id, 0));
+        visited.insert(source_id);
+
+        while let Some((current_id, depth)) = queue.pop_front() {
+            if current_id == target_id {
+                // Reconstruct path
+                let path = self.reconstruct_path(&parent_map, source_id, target_id)?;
+                return Ok(Some(path));
+            }
+
+            if depth >= max_depth {
+                continue;
+            }
+
+            // Get outgoing edges
+            let edges = self.list_graph_edges(session_id, Some(current_id), None)?;
+            for edge in edges {
+                let target = edge.target_id;
+                if !visited.contains(&target) {
+                    visited.insert(target);
+                    parent_map.insert(target, (current_id, edge));
+                    queue.push_back((target, depth + 1));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn traverse_neighbors(
+        &self,
+        session_id: &str,
+        node_id: i64,
+        direction: TraversalDirection,
+        depth: usize,
+    ) -> Result<Vec<GraphNode>> {
+        if depth == 0 {
+            return Ok(vec![]);
+        }
+
+        let mut visited = std::collections::HashSet::new();
+        let mut result = Vec::new();
+        let mut queue = std::collections::VecDeque::new();
+
+        queue.push_back((node_id, 0));
+        visited.insert(node_id);
+
+        while let Some((current_id, current_depth)) = queue.pop_front() {
+            if current_depth > 0 {
+                if let Some(node) = self.get_graph_node(current_id)? {
+                    result.push(node);
+                }
+            }
+
+            if current_depth >= depth {
+                continue;
+            }
+
+            // Get edges based on direction
+            let edges = match direction {
+                TraversalDirection::Outgoing => {
+                    self.list_graph_edges(session_id, Some(current_id), None)?
+                }
+                TraversalDirection::Incoming => {
+                    self.list_graph_edges(session_id, None, Some(current_id))?
+                }
+                TraversalDirection::Both => {
+                    let mut out_edges = self.list_graph_edges(session_id, Some(current_id), None)?;
+                    let in_edges = self.list_graph_edges(session_id, None, Some(current_id))?;
+                    out_edges.extend(in_edges);
+                    out_edges
+                }
+            };
+
+            for edge in edges {
+                let next_id = match direction {
+                    TraversalDirection::Outgoing => edge.target_id,
+                    TraversalDirection::Incoming => edge.source_id,
+                    TraversalDirection::Both => {
+                        if edge.source_id == current_id {
+                            edge.target_id
+                        } else {
+                            edge.source_id
+                        }
+                    }
+                };
+
+                if !visited.contains(&next_id) {
+                    visited.insert(next_id);
+                    queue.push_back((next_id, current_depth + 1));
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    // ---------- Helper Methods ----------
+
+    fn row_to_graph_node(row: &duckdb::Row) -> Result<GraphNode> {
+        let id: i64 = row.get(0)?;
+        let session_id: String = row.get(1)?;
+        let node_type: String = row.get(2)?;
+        let label: String = row.get(3)?;
+        let properties: String = row.get(4)?;
+        let embedding_id: Option<i64> = row.get(5)?;
+        let created_at: String = row.get(6)?;
+        let updated_at: String = row.get(7)?;
+
+        Ok(GraphNode {
+            id,
+            session_id,
+            node_type: NodeType::from_str(&node_type),
+            label,
+            properties: serde_json::from_str(&properties).unwrap_or(JsonValue::Null),
+            embedding_id,
+            created_at: created_at.parse().unwrap_or_else(|_| Utc::now()),
+            updated_at: updated_at.parse().unwrap_or_else(|_| Utc::now()),
+        })
+    }
+
+    fn row_to_graph_edge(row: &duckdb::Row) -> Result<GraphEdge> {
+        let id: i64 = row.get(0)?;
+        let session_id: String = row.get(1)?;
+        let source_id: i64 = row.get(2)?;
+        let target_id: i64 = row.get(3)?;
+        let edge_type: String = row.get(4)?;
+        let predicate: Option<String> = row.get(5)?;
+        let properties: Option<String> = row.get(6)?;
+        let weight: f32 = row.get(7)?;
+        let temporal_start: Option<String> = row.get(8)?;
+        let temporal_end: Option<String> = row.get(9)?;
+        let created_at: String = row.get(10)?;
+
+        Ok(GraphEdge {
+            id,
+            session_id,
+            source_id,
+            target_id,
+            edge_type: EdgeType::from_str(&edge_type),
+            predicate,
+            properties: properties.and_then(|p| serde_json::from_str(&p).ok()),
+            weight,
+            temporal_start: temporal_start.and_then(|s| s.parse().ok()),
+            temporal_end: temporal_end.and_then(|s| s.parse().ok()),
+            created_at: created_at.parse().unwrap_or_else(|_| Utc::now()),
+        })
+    }
+
+    fn collect_graph_nodes(mut rows: duckdb::Rows) -> Result<Vec<GraphNode>> {
+        let mut nodes = Vec::new();
+        while let Some(row) = rows.next()? {
+            nodes.push(Self::row_to_graph_node(row)?);
+        }
+        Ok(nodes)
+    }
+
+    fn collect_graph_edges(mut rows: duckdb::Rows) -> Result<Vec<GraphEdge>> {
+        let mut edges = Vec::new();
+        while let Some(row) = rows.next()? {
+            edges.push(Self::row_to_graph_edge(row)?);
+        }
+        Ok(edges)
+    }
+
+    fn reconstruct_path(
+        &self,
+        parent_map: &std::collections::HashMap<i64, (i64, GraphEdge)>,
+        source_id: i64,
+        target_id: i64,
+    ) -> Result<GraphPath> {
+        let mut path_edges = Vec::new();
+        let mut path_nodes = Vec::new();
+        let mut current = target_id;
+        let mut total_weight = 0.0;
+
+        // Collect edges in reverse order
+        while current != source_id {
+            if let Some((parent, edge)) = parent_map.get(&current) {
+                path_edges.push(edge.clone());
+                total_weight += edge.weight;
+                current = *parent;
+            } else {
+                break;
+            }
+        }
+
+        // Reverse to get correct order
+        path_edges.reverse();
+
+        // Collect nodes
+        if let Some(node) = self.get_graph_node(source_id)? {
+            path_nodes.push(node);
+        }
+        for edge in &path_edges {
+            if let Some(node) = self.get_graph_node(edge.target_id)? {
+                path_nodes.push(node);
+            }
+        }
+
+        Ok(GraphPath {
+            length: path_edges.len(),
+            weight: total_weight,
+            nodes: path_nodes,
+            edges: path_edges,
+        })
+    }
 }

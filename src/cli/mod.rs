@@ -23,6 +23,12 @@ pub enum Command {
     SessionNew(Option<String>),
     SessionList,
     SessionSwitch(String),
+    // Graph commands
+    GraphEnable,
+    GraphDisable,
+    GraphStatus,
+    GraphShow(Option<usize>),
+    GraphClear,
     Message(String),
     Empty,
 }
@@ -78,6 +84,17 @@ pub fn parse_command(input: &str) -> Command {
                         Command::SessionSwitch(id)
                     }
                 }
+                _ => Command::Help,
+            },
+            "graph" => match parts.next() {
+                Some("enable") => Command::GraphEnable,
+                Some("disable") => Command::GraphDisable,
+                Some("status") => Command::GraphStatus,
+                Some("show") => {
+                    let n = parts.next().and_then(|s| s.parse::<usize>().ok());
+                    Command::GraphShow(n)
+                }
+                Some("clear") => Command::GraphClear,
                 _ => Command::Help,
             },
             _ => Command::Help,
@@ -256,6 +273,95 @@ impl CliState {
                     Some(id.clone()),
                 )?;
                 Ok(Some(format!("Switched to session '{}'.", id)))
+            }
+            // Graph commands
+            Command::GraphEnable => {
+                // For now, just show instructions for enabling graph features
+                // Since modifying the agent at runtime requires complex rebuilding
+                Ok(Some(
+                    "To enable knowledge graph features, update your config.toml:\n\n\
+                    [agents.your_agent_name]\n\
+                    enable_graph = true\n\
+                    graph_memory = true\n\
+                    auto_graph = true\n\
+                    graph_steering = true\n\
+                    graph_depth = 3\n\
+                    graph_weight = 0.5\n\
+                    graph_threshold = 0.7\n\n\
+                    Then run: /config reload".to_string()
+                ))
+            }
+            Command::GraphDisable => {
+                // For now, just show instructions for disabling graph features
+                Ok(Some(
+                    "To disable knowledge graph features, update your config.toml:\n\n\
+                    [agents.your_agent_name]\n\
+                    enable_graph = false\n\n\
+                    Then run: /config reload".to_string()
+                ))
+            }
+            Command::GraphStatus => {
+                let profile = self.agent.profile();
+                let status = format!(
+                    "Knowledge Graph Configuration:\n  \
+                    Enabled: {}\n  \
+                    Graph Memory: {}\n  \
+                    Auto Build: {}\n  \
+                    Graph Steering: {}\n  \
+                    Traversal Depth: {}\n  \
+                    Graph Weight: {:.2}\n  \
+                    Tool Threshold: {:.2}",
+                    profile.enable_graph,
+                    profile.graph_memory,
+                    profile.auto_graph,
+                    profile.graph_steering,
+                    profile.graph_depth,
+                    profile.graph_weight,
+                    profile.graph_threshold,
+                );
+                Ok(Some(status))
+            }
+            Command::GraphShow(limit) => {
+                let limit_val = limit.unwrap_or(10) as i64;
+                let session_id = self.agent.session_id();
+                let nodes = self.persistence.list_graph_nodes(session_id, None, Some(limit_val))?;
+
+                if nodes.is_empty() {
+                    Ok(Some("No graph nodes in current session.".to_string()))
+                } else {
+                    let mut output = format!("Graph Nodes (showing {} of {}):\n", nodes.len(), nodes.len());
+                    for node in &nodes {
+                        output.push_str(&format!(
+                            "  [{:?}] {} - {}\n",
+                            node.node_type,
+                            node.label,
+                            if let Some(name) = node.properties["name"].as_str() {
+                                name
+                            } else {
+                                "unnamed"
+                            }
+                        ));
+                    }
+
+                    // Also show edge count
+                    let edges = self.persistence.list_graph_edges(session_id, None, None)?;
+                    output.push_str(&format!("\nTotal edges: {}", edges.len()));
+
+                    Ok(Some(output))
+                }
+            }
+            Command::GraphClear => {
+                let session_id = self.agent.session_id();
+
+                // Get all nodes and delete them (edges will cascade)
+                let nodes = self.persistence.list_graph_nodes(session_id, None, None)?;
+                let count = nodes.len();
+
+                for node in nodes {
+                    self.persistence.delete_graph_node(node.id)?;
+                }
+
+                Ok(Some(format!("Cleared {} graph nodes for session '{}'", count, session_id)))
             }
             Command::Message(text) => {
                 let output = self.agent.run_step(&text).await?;

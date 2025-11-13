@@ -267,6 +267,19 @@ mod tests {
             memory_k: 10,
             top_p: 0.95,
             max_context_tokens: Some(4096),
+            enable_graph: false,
+            graph_memory: false,
+            auto_graph: false,
+            graph_steering: false,
+            graph_depth: 3,
+            graph_weight: 0.5,
+            graph_threshold: 0.7,
+            fast_reasoning: false,
+            fast_model_provider: None,
+            fast_model_name: None,
+            fast_model_temperature: 0.3,
+            fast_model_tasks: vec![],
+            escalation_threshold: 0.6,
         }
     }
 
