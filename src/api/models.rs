@@ -42,8 +42,14 @@ pub struct ToolCallInfo {
     pub name: String,
     /// Tool arguments
     pub arguments: serde_json::Value,
-    /// Tool result
-    pub result: Option<serde_json::Value>,
+    /// Execution status
+    pub success: bool,
+    /// Tool output (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    /// Error message if the tool failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Response metadata
@@ -55,6 +61,8 @@ pub struct ResponseMetadata {
     pub model: String,
     /// Processing time in milliseconds
     pub processing_time_ms: u64,
+    /// Unique identifier for correlating with telemetry
+    pub run_id: String,
 }
 
 /// Streaming response chunk
@@ -182,6 +190,7 @@ mod tests {
                 timestamp: "2024-01-01T00:00:00Z".to_string(),
                 model: "mock".to_string(),
                 processing_time_ms: 100,
+                run_id: "run-1".to_string(),
             },
         };
 
@@ -207,6 +216,7 @@ mod tests {
                     timestamp: "2024-01-01T00:00:00Z".to_string(),
                     model: "mock".to_string(),
                     processing_time_ms: 100,
+                    run_id: "run-1".to_string(),
                 },
             },
         ];

@@ -81,6 +81,29 @@ impl Persistence {
         Ok(out)
     }
 
+    pub fn get_message(&self, message_id: i64) -> Result<Option<Message>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare("SELECT id, session_id, role, content, CAST(created_at AS TEXT) as created_at FROM messages WHERE id = ?")?;
+        let mut rows = stmt.query(params![message_id])?;
+        if let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let sid: String = row.get(1)?;
+            let role: String = row.get(2)?;
+            let content: String = row.get(3)?;
+            let created_at: String = row.get(4)?;
+            let created_at: DateTime<Utc> = created_at.parse().unwrap_or_else(|_| Utc::now());
+            Ok(Some(Message {
+                id,
+                session_id: sid,
+                role: MessageRole::from_str(&role),
+                content,
+                created_at,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Simple pruning by keeping only the most recent `keep_latest` messages.
     pub fn prune_messages(&self, session_id: &str, keep_latest: i64) -> Result<u64> {
         let conn = self.conn()?;
@@ -160,6 +183,9 @@ impl Persistence {
 
     pub fn log_tool(
         &self,
+        session_id: &str,
+        agent_name: &str,
+        run_id: &str,
         tool_name: &str,
         arguments: &JsonValue,
         result: &JsonValue,
@@ -167,9 +193,12 @@ impl Persistence {
         error: Option<&str>,
     ) -> Result<i64> {
         let conn = self.conn()?;
-        let mut stmt = conn.prepare("INSERT INTO tool_log (tool_name, arguments, result, success, error) VALUES (?, ?, ?, ?, ?) RETURNING id")?;
+        let mut stmt = conn.prepare("INSERT INTO tool_log (session_id, agent, run_id, tool_name, arguments, result, success, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")?;
         let id: i64 = stmt.query_row(
             params![
+                session_id,
+                agent_name,
+                run_id,
                 tool_name,
                 arguments.to_string(),
                 result.to_string(),

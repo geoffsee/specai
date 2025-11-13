@@ -30,8 +30,10 @@ fn create_test_agent_with_policy(
     let agent = AgentCore::new(
         profile,
         provider,
+        None,
         persistence,
         "test-session".to_string(),
+        Some("policy-test".to_string()),
         Arc::new(tool_registry),
         policy_engine,
     );
@@ -261,8 +263,10 @@ fn test_policy_reload_updates_agent() {
     let mut agent = AgentCore::new(
         profile,
         provider,
+        None,
         persistence.clone(),
         "test-session".to_string(),
+        Some("policy-reload".to_string()),
         tool_registry,
         Arc::new(policy_engine),
     );

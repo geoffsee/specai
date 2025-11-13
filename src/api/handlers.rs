@@ -5,6 +5,7 @@ use crate::api::models::*;
 use crate::config::{AgentRegistry, AppConfig};
 use crate::persistence::Persistence;
 use crate::tools::ToolRegistry;
+use async_stream::stream;
 use axum::{
     extract::{Json, State},
     http::StatusCode,
@@ -14,7 +15,7 @@ use axum::{
     },
 };
 use futures::StreamExt;
-use futures::stream::{self};
+use serde_json::json;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -125,16 +126,28 @@ pub async fn query(State(state): State<AppState>, Json(request): Json<QueryReque
     match agent.run_step(&request.message).await {
         Ok(output) => {
             let processing_time = start.elapsed().as_millis() as u64;
+            let tool_calls: Vec<ToolCallInfo> = output
+                .tool_invocations
+                .iter()
+                .map(|inv| ToolCallInfo {
+                    name: inv.name.clone(),
+                    arguments: inv.arguments.clone(),
+                    success: inv.success,
+                    output: inv.output.clone(),
+                    error: inv.error.clone(),
+                })
+                .collect();
 
             let response = QueryResponse {
                 response: output.response,
                 session_id,
                 agent: agent_name,
-                tool_calls: vec![], // TODO: Extract tool calls from output
+                tool_calls,
                 metadata: ResponseMetadata {
                     timestamp: current_timestamp(),
                     model: state.config.model.provider.clone(),
                     processing_time_ms: processing_time,
+                    run_id: output.run_id,
                 },
             };
 
@@ -177,39 +190,54 @@ pub async fn stream_query(
     let message = request.message.clone();
     let session_id_clone = session_id.clone();
     let agent_name_clone = agent_name.clone();
+    let model_id = state.config.model.provider.clone();
 
-    let stream = stream::iter(vec![StreamChunk::Start {
-        session_id: session_id_clone.clone(),
-        agent: agent_name_clone.clone(),
-    }])
-    .chain(stream::once(async move {
-        let _start = Instant::now();
+    let sse_stream = stream! {
+        yield StreamChunk::Start {
+            session_id: session_id_clone.clone(),
+            agent: agent_name_clone.clone(),
+        };
+
+        let start = Instant::now();
         let mut agent_lock = agent.write().await;
 
         match agent_lock.run_step(&message).await {
             Ok(output) => {
-                // For now, send the full response as a single chunk
-                // In a real implementation, we'd stream token by token
-                StreamChunk::Content {
-                    text: output.response,
-                }
-            }
-            Err(e) => StreamChunk::Error {
-                message: e.to_string(),
-            },
-        }
-    }))
-    .chain(stream::once(async move {
-        StreamChunk::End {
-            metadata: ResponseMetadata {
-                timestamp: current_timestamp(),
-                model: "mock".to_string(),
-                processing_time_ms: 0,
-            },
-        }
-    }));
+                yield StreamChunk::Content { text: output.response.clone() };
 
-    Sse::new(stream.map(|chunk| {
+                for invocation in output.tool_invocations {
+                    yield StreamChunk::ToolCall {
+                        name: invocation.name.clone(),
+                        arguments: invocation.arguments.clone(),
+                    };
+                    yield StreamChunk::ToolResult {
+                        name: invocation.name.clone(),
+                        result: json!({
+                            "success": invocation.success,
+                            "output": invocation.output,
+                            "error": invocation.error,
+                        }),
+                    };
+                }
+
+                yield StreamChunk::End {
+                    metadata: ResponseMetadata {
+                        timestamp: current_timestamp(),
+                        model: model_id.clone(),
+                        processing_time_ms: start.elapsed().as_millis() as u64,
+                        run_id: output.run_id,
+                    },
+                };
+            }
+            Err(e) => {
+                yield StreamChunk::Error {
+                    message: e.to_string(),
+                };
+            }
+        }
+    };
+
+    Sse::new(sse_stream.map(|chunk| {
         let json = serde_json::to_string(&chunk).unwrap();
         Ok::<_, Infallible>(Event::default().data(json))
     }))
@@ -234,6 +262,7 @@ async fn create_agent(
         .with_profile(profile)
         .with_config(state.config.clone())
         .with_session_id(session_id)
+        .with_agent_name(agent_name.to_string())
         .with_tool_registry(state.tool_registry.clone())
         .with_persistence(state.persistence.clone())
         .build()?;

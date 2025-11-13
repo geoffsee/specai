@@ -1,6 +1,6 @@
 //! CLI module for Epic 4 — minimal REPL and command parser
 
-mod formatting;
+pub mod formatting;
 
 use anyhow::{Context, Result};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -259,7 +259,12 @@ impl CliState {
             }
             Command::Message(text) => {
                 let output = self.agent.run_step(&text).await?;
-                let formatted = formatting::render_agent_response("assistant", &output.response);
+                let mut formatted =
+                    formatting::render_agent_response("assistant", &output.response);
+                if let Some(stats) = formatting::render_run_stats(&output) {
+                    formatted.push('\n');
+                    formatted.push_str(&stats);
+                }
                 Ok(Some(formatted))
             }
         }
@@ -339,6 +344,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_cli_smoke() {
+        // Force plain text mode for consistent test output
+        formatting::set_plain_text_mode(true);
+
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("cli.duckdb");
 
@@ -351,6 +359,7 @@ mod tests {
             model: ModelConfig {
                 provider: "mock".into(),
                 model_name: None,
+                embeddings_model: None,
                 api_key_source: None,
                 temperature: 0.7,
             },
@@ -390,6 +399,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_agents_command() {
+        // Force plain text mode for consistent test output
+        formatting::set_plain_text_mode(true);
+
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("cli_agents.duckdb");
 
@@ -403,6 +415,7 @@ mod tests {
             model: ModelConfig {
                 provider: "mock".into(),
                 model_name: None,
+                embeddings_model: None,
                 api_key_source: None,
                 temperature: 0.7,
             },
@@ -446,6 +459,7 @@ mod tests {
             model: ModelConfig {
                 provider: "mock".into(),
                 model_name: Some("test-model".into()),
+                embeddings_model: None,
                 api_key_source: None,
                 temperature: 0.8,
             },
@@ -485,6 +499,7 @@ mod tests {
             model: ModelConfig {
                 provider: "mock".into(),
                 model_name: None,
+                embeddings_model: None,
                 api_key_source: None,
                 temperature: 0.7,
             },

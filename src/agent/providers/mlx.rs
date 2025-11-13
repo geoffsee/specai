@@ -272,6 +272,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
     fn test_mlx_provider_creation() {
         let provider = MLXProvider::new("mlx-community/Llama-3.2-3B-Instruct-4bit");
         assert_eq!(provider.model, "mlx-community/Llama-3.2-3B-Instruct-4bit");
@@ -279,6 +280,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
     fn test_mlx_provider_with_custom_endpoint() {
         let provider = MLXProvider::with_endpoint(
             "http://192.168.1.100:8080",
@@ -288,12 +290,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
     fn test_mlx_provider_with_model() {
         let provider = MLXProvider::new("model-1").with_model("model-2");
         assert_eq!(provider.model, "model-2");
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
     fn test_mlx_provider_with_system_message() {
         let provider =
             MLXProvider::new("test-model").with_system_message("You are a helpful assistant.");
@@ -304,6 +308,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
     fn test_mlx_provider_metadata() {
         let provider = MLXProvider::new("test-model");
         let metadata = provider.metadata();
@@ -314,12 +319,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
     fn test_mlx_provider_kind() {
         let provider = MLXProvider::new("test-model");
         assert_eq!(provider.kind(), ProviderKind::MLX);
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
     fn test_build_messages_without_system() {
         let provider = MLXProvider::new("test-model");
         let messages = provider.build_messages("Hello, world!").unwrap();
@@ -328,6 +335,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
     fn test_build_messages_with_system() {
         let provider =
             MLXProvider::new("test-model").with_system_message("You are a helpful assistant.");

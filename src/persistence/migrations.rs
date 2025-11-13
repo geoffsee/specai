@@ -19,6 +19,11 @@ pub fn run(conn: &Connection) -> Result<()> {
         set_version(conn, 1)?;
     }
 
+    if current < 2 {
+        apply_v2(conn)?;
+        set_version(conn, 2)?;
+    }
+
     Ok(())
 }
 
@@ -82,4 +87,16 @@ fn apply_v1(conn: &Connection) -> Result<()> {
     .context("applying v1 schema")?;
 
     Ok(())
+}
+
+fn apply_v2(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        ALTER TABLE tool_log ADD COLUMN session_id TEXT;
+        ALTER TABLE tool_log ADD COLUMN agent TEXT;
+        ALTER TABLE tool_log ADD COLUMN run_id TEXT;
+        UPDATE tool_log SET session_id = COALESCE(session_id, ''), agent = COALESCE(agent, ''), run_id = COALESCE(run_id, '');
+        "#,
+    )
+    .context("applying v2 schema (tool telemetry columns)")
 }

@@ -1,6 +1,20 @@
 //! Terminal formatting utilities using termimad for rich markdown rendering
 
+use crate::agent::core::{AgentOutput, MemoryRecallStrategy};
+use serde_json::to_string;
+use std::cell::Cell;
 use termimad::*;
+
+thread_local! {
+    /// Override for terminal detection in tests
+    static FORCE_PLAIN_TEXT: Cell<bool> = Cell::new(false);
+}
+
+/// Force plain text output (for testing)
+/// Available for both unit and integration tests
+pub fn set_plain_text_mode(enabled: bool) {
+    FORCE_PLAIN_TEXT.with(|f| f.set(enabled));
+}
 
 /// Initialize a custom MadSkin with spec-ai color scheme
 pub fn create_skin() -> MadSkin {
@@ -47,6 +61,11 @@ pub fn create_skin() -> MadSkin {
 
 /// Check if we're in a TTY (terminal) or if output is piped/redirected
 pub fn is_terminal() -> bool {
+    // Check for test override first
+    if FORCE_PLAIN_TEXT.with(|f| f.get()) {
+        return false;
+    }
+
     // Use terminal_size as a proxy for TTY detection
     terminal_size::terminal_size().is_some()
 }
@@ -80,6 +99,94 @@ pub fn render_agent_response(role: &str, content: &str) -> String {
     // Format with role header
     let formatted = format!("**{}:**\n\n{}", role, content);
     skin.text(&formatted, Some(terminal_width)).to_string()
+}
+
+/// Render run metadata (memory recall, tools, token usage)
+pub fn render_run_stats(output: &AgentOutput) -> Option<String> {
+    let mut sections = Vec::new();
+
+    if let Some(stats) = &output.recall_stats {
+        let mut section = String::from("## Memory Recall\n");
+        match stats.strategy {
+            MemoryRecallStrategy::Semantic {
+                requested,
+                returned,
+            } => {
+                section.push_str(&format!(
+                    "- Strategy: semantic (requested top {}, returned {})\n",
+                    requested, returned
+                ));
+            }
+            MemoryRecallStrategy::RecentContext { limit } => {
+                section.push_str(&format!(
+                    "- Strategy: recent context window (last {} messages)\n",
+                    limit
+                ));
+            }
+        }
+
+        if stats.matches.is_empty() {
+            section.push_str("- No recalled vector matches this turn.\n");
+        } else {
+            section.push_str("- Matches:\n");
+            for (idx, m) in stats.matches.iter().take(3).enumerate() {
+                section.push_str(&format!(
+                    "  {}. [{} | score {:.2}] {}\n",
+                    idx + 1,
+                    m.role.as_str(),
+                    m.score,
+                    m.preview
+                ));
+            }
+            if stats.matches.len() > 3 {
+                section.push_str(&format!(
+                    "  ... {} additional matches omitted\n",
+                    stats.matches.len() - 3
+                ));
+            }
+        }
+        sections.push(section);
+    }
+
+    if !output.tool_invocations.is_empty() {
+        let mut section = String::from("## Tool Calls\n");
+        for inv in &output.tool_invocations {
+            section.push_str(&format!(
+                "- **{}** [{}]",
+                inv.name,
+                if inv.success { "ok" } else { "error" }
+            ));
+            let args = to_string(&inv.arguments).unwrap_or_else(|_| "{}".to_string());
+            section.push_str(&format!(" args: `{}`", args));
+
+            if let Some(out) = &inv.output {
+                if !out.is_empty() {
+                    section.push_str(&format!(" → {}", out));
+                }
+            }
+
+            if let Some(err) = &inv.error {
+                section.push_str(&format!(" (error: {})", err));
+            }
+
+            section.push('\n');
+        }
+        sections.push(section);
+    }
+
+    if let Some(usage) = &output.token_usage {
+        sections.push(format!(
+            "## Tokens\n- Prompt: {}\n- Completion: {}\n- Total: {}\n",
+            usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+        ));
+    }
+
+    if sections.is_empty() {
+        return None;
+    }
+
+    let markdown = format!("---\n\n# Run Stats\n\n{}", sections.join("\n"));
+    Some(render_markdown(&markdown))
 }
 
 /// Render help text with rich markdown formatting

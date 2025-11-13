@@ -3,9 +3,10 @@
 //! Provides a fluent API for constructing agent instances.
 
 use crate::agent::core::AgentCore;
-use crate::agent::factory::create_provider;
+use crate::agent::factory::{create_provider, resolve_api_key};
 use crate::agent::model::ModelProvider;
 use crate::config::{AgentProfile, AgentRegistry, AppConfig};
+use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::PolicyEngine;
 use crate::tools::ToolRegistry;
@@ -16,11 +17,13 @@ use std::sync::Arc;
 pub struct AgentBuilder {
     profile: Option<AgentProfile>,
     provider: Option<Arc<dyn ModelProvider>>,
+    embeddings_client: Option<EmbeddingsClient>,
     persistence: Option<Persistence>,
     session_id: Option<String>,
     config: Option<AppConfig>,
     tool_registry: Option<Arc<ToolRegistry>>,
     policy_engine: Option<Arc<PolicyEngine>>,
+    agent_name: Option<String>,
 }
 
 impl AgentBuilder {
@@ -29,11 +32,13 @@ impl AgentBuilder {
         Self {
             profile: None,
             provider: None,
+            embeddings_client: None,
             persistence: None,
             session_id: None,
             config: None,
             tool_registry: None,
             policy_engine: None,
+            agent_name: None,
         }
     }
 
@@ -56,6 +61,12 @@ impl AgentBuilder {
     /// Set the model provider
     pub fn with_provider(mut self, provider: Arc<dyn ModelProvider>) -> Self {
         self.provider = Some(provider);
+        self
+    }
+
+    /// Set a custom embeddings client
+    pub fn with_embeddings_client(mut self, embeddings_client: EmbeddingsClient) -> Self {
+        self.embeddings_client = Some(embeddings_client);
         self
     }
 
@@ -89,6 +100,12 @@ impl AgentBuilder {
         self
     }
 
+    /// Set the logical agent name (used for telemetry/logging)
+    pub fn with_agent_name(mut self, agent_name: impl Into<String>) -> Self {
+        self.agent_name = Some(agent_name.into());
+        self
+    }
+
     /// Build the agent, validating all required fields
     pub fn build(self) -> Result<AgentCore> {
         // Get profile (required)
@@ -118,6 +135,15 @@ impl AgentBuilder {
             ));
         };
 
+        // Get or create embeddings client
+        let embeddings_client = if let Some(client) = self.embeddings_client {
+            Some(client)
+        } else if let Some(ref config) = self.config {
+            create_embeddings_client_from_config(config)?
+        } else {
+            None
+        };
+
         // Get or generate session ID
         let session_id = self
             .session_id
@@ -141,8 +167,10 @@ impl AgentBuilder {
         Ok(AgentCore::new(
             profile,
             provider,
+            embeddings_client,
             persistence,
             session_id,
+            self.agent_name,
             tool_registry,
             policy_engine,
         ))
@@ -161,20 +189,37 @@ pub fn create_agent_from_registry(
     config: &AppConfig,
     session_id: Option<String>,
 ) -> Result<AgentCore> {
-    let (_, profile) = registry
+    let (agent_name, profile) = registry
         .active()
         .context("No active agent profile in registry")?
         .ok_or_else(|| anyhow!("No active agent set in registry"))?;
 
     let mut builder = AgentBuilder::new()
         .with_profile(profile)
-        .with_config(config.clone());
+        .with_config(config.clone())
+        .with_agent_name(agent_name.clone());
 
     if let Some(sid) = session_id {
         builder = builder.with_session_id(sid);
     }
 
     builder.build()
+}
+
+fn create_embeddings_client_from_config(config: &AppConfig) -> Result<Option<EmbeddingsClient>> {
+    let model = &config.model;
+    let Some(model_name) = &model.embeddings_model else {
+        return Ok(None);
+    };
+
+    let client = if let Some(source) = &model.api_key_source {
+        let api_key = resolve_api_key(source)?;
+        EmbeddingsClient::with_api_key(model_name.clone(), api_key)
+    } else {
+        EmbeddingsClient::new(model_name.clone())
+    };
+
+    Ok(Some(client))
 }
 
 #[cfg(test)]
@@ -194,6 +239,7 @@ mod tests {
             model: ModelConfig {
                 provider: "mock".to_string(),
                 model_name: Some("test-model".to_string()),
+                embeddings_model: None,
                 api_key_source: None,
                 temperature: 0.7,
             },

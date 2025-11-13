@@ -5,9 +5,15 @@ use spec_ai::config::{
 use std::collections::HashMap;
 use tempfile::TempDir;
 
+// Import the formatting module to access set_plain_text_mode
+use spec_ai::cli::formatting;
+
 /// Integration test for full CLI workflow across multiple commands
 #[tokio::test]
 async fn test_full_cli_workflow() {
+    // Force plain text mode for consistent test output
+    formatting::set_plain_text_mode(true);
+
     let dir = TempDir::new().unwrap();
     let db_path = dir.path().join("workflow.duckdb");
 
@@ -29,6 +35,7 @@ async fn test_full_cli_workflow() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: Some("test-model".into()),
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -47,7 +54,7 @@ async fn test_full_cli_workflow() {
 
     // 1. Check initial help
     let help = cli.handle_line("/help").await.unwrap().unwrap();
-    assert!(help.contains("Available commands:"));
+    assert!(help.contains("SpecAI Commands"));
     assert!(help.contains("/config show"));
     assert!(help.contains("/agents"));
 
@@ -118,6 +125,9 @@ async fn test_full_cli_workflow() {
 /// Test session isolation - messages in one session don't appear in another
 #[tokio::test]
 async fn test_session_isolation() {
+    // Force plain text mode for consistent test output
+    formatting::set_plain_text_mode(true);
+
     let dir = TempDir::new().unwrap();
     let db_path = dir.path().join("isolation.duckdb");
 
@@ -129,6 +139,7 @@ async fn test_session_isolation() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -168,6 +179,9 @@ async fn test_session_isolation() {
 /// Test agent switching preserves session but changes agent context
 #[tokio::test]
 async fn test_agent_switching_preserves_session() {
+    // Force plain text mode for consistent test output
+    formatting::set_plain_text_mode(true);
+
     let dir = TempDir::new().unwrap();
     let db_path = dir.path().join("agent_switch.duckdb");
 
@@ -180,6 +194,7 @@ async fn test_agent_switching_preserves_session() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -225,6 +240,7 @@ async fn test_config_reload() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -277,6 +293,7 @@ async fn test_empty_commands() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -305,6 +322,9 @@ async fn test_empty_commands() {
 /// Test listing agents when no agents configured
 #[tokio::test]
 async fn test_list_agents_empty() {
+    // Force plain text mode for consistent test output
+    formatting::set_plain_text_mode(true);
+
     let dir = TempDir::new().unwrap();
     let db_path = dir.path().join("no_agents.duckdb");
 
@@ -314,6 +334,7 @@ async fn test_list_agents_empty() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },

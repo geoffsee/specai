@@ -47,6 +47,9 @@ pub struct MemoryVector {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolLog {
     pub id: i64,
+    pub session_id: String,
+    pub agent: String,
+    pub run_id: String,
     pub tool_name: String,
     pub arguments: serde_json::Value,
     pub result: serde_json::Value,
