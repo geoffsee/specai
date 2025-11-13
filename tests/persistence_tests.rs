@@ -54,6 +54,23 @@ fn messages_insert_list_and_prune() {
 }
 
 #[test]
+fn get_message_by_id() {
+    let path = temp_db_path();
+    let p = Persistence::new(&path).unwrap();
+
+    let id = p
+        .insert_message("sess", MessageRole::User, "stored")
+        .unwrap();
+
+    let fetched = p.get_message(id).unwrap().expect("message present");
+    assert_eq!(fetched.content, "stored");
+    assert_eq!(fetched.session_id, "sess");
+
+    let missing = p.get_message(id + 1).unwrap();
+    assert!(missing.is_none());
+}
+
+#[test]
 fn memory_vectors_insert_and_recall() {
     let path = temp_db_path();
     let p = Persistence::new(&path).unwrap();

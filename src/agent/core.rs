@@ -4,6 +4,7 @@
 
 use crate::agent::model::{GenerationConfig, ModelProvider};
 use crate::config::AgentProfile;
+use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::{PolicyDecision, PolicyEngine};
 use crate::tools::{ToolRegistry, ToolResult};
@@ -13,7 +14,9 @@ use chrono::Utc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::sync::Arc;
+use tracing::warn;
 
 /// Output from an agent execution step
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +37,8 @@ pub struct AgentCore {
     profile: AgentProfile,
     /// Model provider
     provider: Arc<dyn ModelProvider>,
+    /// Optional embeddings client for semantic recall
+    embeddings_client: Option<EmbeddingsClient>,
     /// Persistence layer
     persistence: Persistence,
     /// Current session ID
@@ -51,6 +56,7 @@ impl AgentCore {
     pub fn new(
         profile: AgentProfile,
         provider: Arc<dyn ModelProvider>,
+        embeddings_client: Option<EmbeddingsClient>,
         persistence: Persistence,
         session_id: String,
         tool_registry: Arc<ToolRegistry>,
@@ -59,6 +65,7 @@ impl AgentCore {
         Self {
             profile,
             provider,
+            embeddings_client,
             persistence,
             session_id,
             conversation_history: Vec::new(),
@@ -195,11 +202,57 @@ impl AgentCore {
     }
 
     /// Recall relevant memories for the given input
-    async fn recall_memories(&self, _query: &str) -> Result<Vec<Message>> {
-        // For now, use simple recency-based recall
-        // TODO: Implement vector similarity search when embeddings are available
-        let limit = self.profile.memory_k as i64;
+    async fn recall_memories(&self, query: &str) -> Result<Vec<Message>> {
+        const RECENT_CONTEXT: i64 = 2;
+        let mut context = Vec::new();
+        let mut seen_ids = HashSet::new();
 
+        let recent_messages = self
+            .persistence
+            .list_messages(&self.session_id, RECENT_CONTEXT)?;
+
+        for message in recent_messages {
+            seen_ids.insert(message.id);
+            context.push(message);
+        }
+
+        if let Some(client) = &self.embeddings_client {
+            if self.profile.memory_k == 0 || query.trim().is_empty() {
+                return Ok(context);
+            }
+
+            match client.embed(query).await {
+                Ok(query_embedding) if !query_embedding.is_empty() => {
+                    let recalled = self.persistence.recall_top_k(
+                        &self.session_id,
+                        &query_embedding,
+                        self.profile.memory_k,
+                    )?;
+
+                    for (memory, _score) in recalled {
+                        if let Some(message_id) = memory.message_id {
+                            if seen_ids.contains(&message_id) {
+                                continue;
+                            }
+
+                            if let Some(message) = self.persistence.get_message(message_id)? {
+                                seen_ids.insert(message.id);
+                                context.push(message);
+                            }
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    warn!("Failed to embed recall query: {}", err);
+                }
+            }
+
+            return Ok(context);
+        }
+
+        // Fallback when embeddings are unavailable
+        let limit = self.profile.memory_k as i64;
         let messages = self.persistence.list_messages(&self.session_id, limit)?;
 
         Ok(messages)
@@ -233,9 +286,38 @@ impl AgentCore {
 
     /// Store a message in persistence
     async fn store_message(&self, role: MessageRole, content: &str) -> Result<i64> {
-        self.persistence
+        let message_id = self
+            .persistence
             .insert_message(&self.session_id, role, content)
-            .context("Failed to store message")
+            .context("Failed to store message")?;
+
+        if let Some(client) = &self.embeddings_client {
+            if !content.trim().is_empty() {
+                match client.embed(content).await {
+                    Ok(embedding) if !embedding.is_empty() => {
+                        if let Err(err) = self.persistence.insert_memory_vector(
+                            &self.session_id,
+                            Some(message_id),
+                            &embedding,
+                        ) {
+                            warn!(
+                                "Failed to persist embedding for message {}: {}",
+                                message_id, err
+                            );
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        warn!(
+                            "Failed to create embedding for message {}: {}",
+                            message_id, err
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(message_id)
     }
 
     /// Get the current session ID
@@ -329,9 +411,18 @@ mod tests {
     use super::*;
     use crate::agent::providers::MockProvider;
     use crate::config::AgentProfile;
+    use crate::embeddings::{EmbeddingsClient, EmbeddingsService};
+    use async_trait::async_trait;
     use tempfile::tempdir;
 
     fn create_test_agent(session_id: &str) -> (AgentCore, tempfile::TempDir) {
+        create_test_agent_with_embeddings(session_id, None)
+    }
+
+    fn create_test_agent_with_embeddings(
+        session_id: &str,
+        embeddings_client: Option<EmbeddingsClient>,
+    ) -> (AgentCore, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.duckdb");
         let persistence = Persistence::new(&db_path).unwrap();
@@ -357,12 +448,37 @@ mod tests {
             AgentCore::new(
                 profile,
                 provider,
+                embeddings_client,
                 persistence,
                 session_id.to_string(),
                 tool_registry,
                 policy_engine,
             ),
             dir,
+        )
+    }
+
+    #[derive(Clone)]
+    struct KeywordEmbeddingsService;
+
+    #[async_trait]
+    impl EmbeddingsService for KeywordEmbeddingsService {
+        async fn create_embeddings(&self, _model: &str, input: &str) -> Result<Vec<f32>> {
+            Ok(keyword_embedding(input))
+        }
+    }
+
+    fn keyword_embedding(input: &str) -> Vec<f32> {
+        let lower = input.to_ascii_lowercase();
+        let alpha = if lower.contains("alpha") { 1.0 } else { 0.0 };
+        let beta = if lower.contains("beta") { 1.0 } else { 0.0 };
+        vec![alpha, beta]
+    }
+
+    fn test_embeddings_client() -> EmbeddingsClient {
+        EmbeddingsClient::with_service(
+            "test",
+            Arc::new(KeywordEmbeddingsService) as Arc<dyn EmbeddingsService>,
         )
     }
 
@@ -450,6 +566,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn store_message_records_embeddings() {
+        let (agent, _dir) =
+            create_test_agent_with_embeddings("embedding-store", Some(test_embeddings_client()));
+
+        let message_id = agent
+            .store_message(MessageRole::User, "Alpha detail")
+            .await
+            .unwrap();
+
+        let query = vec![1.0f32, 0.0];
+        let recalled = agent
+            .persistence
+            .recall_top_k("embedding-store", &query, 1)
+            .unwrap();
+
+        assert_eq!(recalled.len(), 1);
+        assert_eq!(recalled[0].0.message_id, Some(message_id));
+    }
+
+    #[tokio::test]
+    async fn recall_memories_appends_semantic_matches() {
+        let (agent, _dir) =
+            create_test_agent_with_embeddings("semantic-recall", Some(test_embeddings_client()));
+
+        agent
+            .store_message(MessageRole::User, "Alpha question")
+            .await
+            .unwrap();
+        agent
+            .store_message(MessageRole::Assistant, "Alpha answer")
+            .await
+            .unwrap();
+        agent
+            .store_message(MessageRole::User, "Beta prompt")
+            .await
+            .unwrap();
+        agent
+            .store_message(MessageRole::Assistant, "Beta reply")
+            .await
+            .unwrap();
+
+        let recalled = agent.recall_memories("alpha follow up").await.unwrap();
+
+        assert_eq!(recalled.len(), 4);
+        assert_eq!(recalled[0].content, "Beta prompt");
+        assert_eq!(recalled[1].content, "Beta reply");
+
+        let tail: Vec<_> = recalled[2..].iter().map(|m| m.content.as_str()).collect();
+        assert!(tail.contains(&"Alpha question"));
+        assert!(tail.contains(&"Alpha answer"));
+    }
+
+    #[tokio::test]
     async fn test_agent_tool_call_parsing() {
         let (agent, _dir) = create_test_agent("tool-parse-test");
 
@@ -507,6 +676,7 @@ mod tests {
         let agent = AgentCore::new(
             profile.clone(),
             provider.clone(),
+            None,
             persistence.clone(),
             "test-session".to_string(),
             tool_registry.clone(),
@@ -523,6 +693,7 @@ mod tests {
         let agent = AgentCore::new(
             profile,
             provider,
+            None,
             persistence,
             "test-session-2".to_string(),
             tool_registry,
@@ -563,6 +734,7 @@ mod tests {
         let agent = AgentCore::new(
             profile,
             provider,
+            None,
             persistence.clone(),
             "tool-exec-test".to_string(),
             Arc::new(tool_registry),

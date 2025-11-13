@@ -3,3 +3,5 @@ archive
 *.iml
 .idea
 .gsio-memory
+prompt.md
+.toak-ignore

@@ -29,6 +29,7 @@ async fn test_full_cli_workflow() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: Some("test-model".into()),
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -47,7 +48,7 @@ async fn test_full_cli_workflow() {
 
     // 1. Check initial help
     let help = cli.handle_line("/help").await.unwrap().unwrap();
-    assert!(help.contains("Available commands:"));
+    assert!(help.contains("SpecAI Commands"));
     assert!(help.contains("/config show"));
     assert!(help.contains("/agents"));
 
@@ -129,6 +130,7 @@ async fn test_session_isolation() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -180,6 +182,7 @@ async fn test_agent_switching_preserves_session() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -225,6 +228,7 @@ async fn test_config_reload() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -277,6 +281,7 @@ async fn test_empty_commands() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },
@@ -314,6 +319,7 @@ async fn test_list_agents_empty() {
         model: ModelConfig {
             provider: "mock".into(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         },

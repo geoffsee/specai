@@ -80,6 +80,9 @@ pub struct ModelConfig {
     pub model_name: Option<String>,
 
     #[serde(default)]
+    pub embeddings_model: Option<String>,
+
+    #[serde(default)]
     pub api_key_source: Option<String>,
 
     #[serde(default = "ModelConfig::default_temperature")]
@@ -101,6 +104,7 @@ impl Default for ModelConfig {
         Self {
             provider: Self::default_provider(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: Self::default_temperature(),
         }
@@ -234,6 +238,10 @@ impl AppConfig {
             self.model.model_name = Some(model_name);
         }
 
+        if let Ok(embeddings_model) = env::var("AGENT_EMBEDDINGS_MODEL") {
+            self.model.embeddings_model = Some(embeddings_model);
+        }
+
         if let Ok(api_key_source) = env::var("AGENT_API_KEY_SOURCE") {
             self.model.api_key_source = Some(api_key_source);
         }
@@ -340,6 +348,10 @@ impl AppConfig {
             lines.push(format!("  Model Name: {}", model_name));
         }
 
+        if let Some(embeddings_model) = &self.model.embeddings_model {
+            lines.push(format!("  Embeddings Model: {}", embeddings_model));
+        }
+
         lines.push(format!("  Temperature: {}", self.model.temperature));
         lines.push(format!("  Logging Level: {}", self.logging.level));
         lines.push(format!("  UI Theme: {}", self.ui.theme));
@@ -376,6 +388,7 @@ mod tests {
         let config = AppConfig::default();
         assert_eq!(config.model.provider, "mock");
         assert_eq!(config.model.temperature, 0.7);
+        assert!(config.model.embeddings_model.is_none());
         assert_eq!(config.logging.level, "info");
         assert_eq!(config.ui.theme, "default");
     }

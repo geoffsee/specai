@@ -3,9 +3,10 @@
 //! Provides a fluent API for constructing agent instances.
 
 use crate::agent::core::AgentCore;
-use crate::agent::factory::create_provider;
+use crate::agent::factory::{create_provider, resolve_api_key};
 use crate::agent::model::ModelProvider;
 use crate::config::{AgentProfile, AgentRegistry, AppConfig};
+use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::PolicyEngine;
 use crate::tools::ToolRegistry;
@@ -16,6 +17,7 @@ use std::sync::Arc;
 pub struct AgentBuilder {
     profile: Option<AgentProfile>,
     provider: Option<Arc<dyn ModelProvider>>,
+    embeddings_client: Option<EmbeddingsClient>,
     persistence: Option<Persistence>,
     session_id: Option<String>,
     config: Option<AppConfig>,
@@ -29,6 +31,7 @@ impl AgentBuilder {
         Self {
             profile: None,
             provider: None,
+            embeddings_client: None,
             persistence: None,
             session_id: None,
             config: None,
@@ -56,6 +59,12 @@ impl AgentBuilder {
     /// Set the model provider
     pub fn with_provider(mut self, provider: Arc<dyn ModelProvider>) -> Self {
         self.provider = Some(provider);
+        self
+    }
+
+    /// Set a custom embeddings client
+    pub fn with_embeddings_client(mut self, embeddings_client: EmbeddingsClient) -> Self {
+        self.embeddings_client = Some(embeddings_client);
         self
     }
 
@@ -118,6 +127,15 @@ impl AgentBuilder {
             ));
         };
 
+        // Get or create embeddings client
+        let embeddings_client = if let Some(client) = self.embeddings_client {
+            Some(client)
+        } else if let Some(ref config) = self.config {
+            create_embeddings_client_from_config(config)?
+        } else {
+            None
+        };
+
         // Get or generate session ID
         let session_id = self
             .session_id
@@ -141,6 +159,7 @@ impl AgentBuilder {
         Ok(AgentCore::new(
             profile,
             provider,
+            embeddings_client,
             persistence,
             session_id,
             tool_registry,
@@ -177,6 +196,22 @@ pub fn create_agent_from_registry(
     builder.build()
 }
 
+fn create_embeddings_client_from_config(config: &AppConfig) -> Result<Option<EmbeddingsClient>> {
+    let model = &config.model;
+    let Some(model_name) = &model.embeddings_model else {
+        return Ok(None);
+    };
+
+    let client = if let Some(source) = &model.api_key_source {
+        let api_key = resolve_api_key(source)?;
+        EmbeddingsClient::with_api_key(model_name.clone(), api_key)
+    } else {
+        EmbeddingsClient::new(model_name.clone())
+    };
+
+    Ok(Some(client))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,6 +229,7 @@ mod tests {
             model: ModelConfig {
                 provider: "mock".to_string(),
                 model_name: Some("test-model".to_string()),
+                embeddings_model: None,
                 api_key_source: None,
                 temperature: 0.7,
             },

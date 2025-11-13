@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod cli;
 pub mod config;
+pub mod embeddings;
 pub mod persistence;
 pub mod plugin;
 pub mod policy;

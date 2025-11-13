@@ -132,6 +132,7 @@ mod tests {
         let config = ModelConfig {
             provider: "mock".to_string(),
             model_name: Some("test-model".to_string()),
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.8,
         };
@@ -145,6 +146,7 @@ mod tests {
         let config = ModelConfig {
             provider: "unknown-provider".to_string(),
             model_name: None,
+            embeddings_model: None,
             api_key_source: None,
             temperature: 0.7,
         };
