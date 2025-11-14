@@ -1,6 +1,6 @@
 use anyhow::Result;
-use spec_ai::agent::{AgentBuilder, AgentCore};
 use spec_ai::agent::factory::create_provider;
+use spec_ai::agent::{AgentBuilder, AgentCore};
 use spec_ai::config::{AgentProfile, AppConfig, ModelConfig};
 use spec_ai::persistence::Persistence;
 use std::sync::Arc;
@@ -95,9 +95,18 @@ async fn main() -> Result<()> {
     .with_fast_provider(fast_provider);
 
     println!("Configuration:");
-    println!("  Main Model: {}", main_model_config.model_name.unwrap_or_default());
-    println!("  Fast Model: {}", profile.fast_model_name.unwrap_or_default());
-    println!("  Fast Model Temperature: {}", profile.fast_model_temperature);
+    println!(
+        "  Main Model: {}",
+        main_model_config.model_name.unwrap_or_default()
+    );
+    println!(
+        "  Fast Model: {}",
+        profile.fast_model_name.unwrap_or_default()
+    );
+    println!(
+        "  Fast Model Temperature: {}",
+        profile.fast_model_temperature
+    );
     println!("  Escalation Threshold: {}\n", profile.escalation_threshold);
 
     // Benchmark different task types
@@ -124,9 +133,9 @@ async fn benchmark_entity_extraction(agent: &mut AgentCore) -> Result<()> {
         let start = Instant::now();
 
         // In production, this would trigger fast model for entity extraction
-        let response = agent.run_step(
-            &format!("Extract all entities from this text: {}", text)
-        ).await?;
+        let response = agent
+            .run_step(&format!("Extract all entities from this text: {}", text))
+            .await?;
 
         let elapsed = start.elapsed();
         println!(
@@ -145,7 +154,7 @@ async fn benchmark_decision_routing(agent: &mut AgentCore) -> Result<()> {
     println!("\n--- Decision Routing Benchmark ---");
 
     let queries = vec![
-        "What's 2+2?", // Simple, route to fast
+        "What's 2+2?",               // Simple, route to fast
         "Explain quantum computing", // Complex, route to main
         "List the days of the week", // Simple, route to fast
     ];
@@ -154,16 +163,20 @@ async fn benchmark_decision_routing(agent: &mut AgentCore) -> Result<()> {
         let start = Instant::now();
 
         // In production, fast model would determine routing
-        let response = agent.run_step(
-            &format!("Determine complexity and route: {}", query)
-        ).await?;
+        let response = agent
+            .run_step(&format!("Determine complexity and route: {}", query))
+            .await?;
 
         let elapsed = start.elapsed();
         println!(
             "  Query {}: {:.2}ms - Routed to: {}",
             i + 1,
             elapsed.as_millis(),
-            if query.contains("quantum") { "main model" } else { "fast model" }
+            if query.contains("quantum") {
+                "main model"
+            } else {
+                "fast model"
+            }
         );
     }
 
@@ -207,7 +220,10 @@ async fn benchmark_mixed_workload(agent: &mut AgentCore) -> Result<()> {
         ("Analyze market trends for technology sector", "main"),
         ("Count words in this sentence", "fast"),
         ("Design a database schema for e-commerce", "main"),
-        ("Find URLs in: Check https://example.com and https://test.org", "fast"),
+        (
+            "Find URLs in: Check https://example.com and https://test.org",
+            "fast",
+        ),
     ];
 
     let mut fast_total_time = 0u128;
@@ -232,13 +248,23 @@ async fn benchmark_mixed_workload(agent: &mut AgentCore) -> Result<()> {
     }
 
     println!("\n  Summary:");
-    println!("    Fast Model Tasks: {} (avg {:.2}ms)",
+    println!(
+        "    Fast Model Tasks: {} (avg {:.2}ms)",
         fast_count,
-        if fast_count > 0 { fast_total_time as f64 / fast_count as f64 } else { 0.0 }
+        if fast_count > 0 {
+            fast_total_time as f64 / fast_count as f64
+        } else {
+            0.0
+        }
     );
-    println!("    Main Model Tasks: {} (avg {:.2}ms)",
+    println!(
+        "    Main Model Tasks: {} (avg {:.2}ms)",
         main_count,
-        if main_count > 0 { main_total_time as f64 / main_count as f64 } else { 0.0 }
+        if main_count > 0 {
+            main_total_time as f64 / main_count as f64
+        } else {
+            0.0
+        }
     );
 
     let speedup = if main_count > 0 && fast_count > 0 {

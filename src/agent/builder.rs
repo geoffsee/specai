@@ -149,10 +149,11 @@ impl AgentBuilder {
             .session_id
             .unwrap_or_else(|| format!("session-{}", chrono::Utc::now().timestamp_millis()));
 
-        // Get or create tool registry (defaults to empty registry)
-        let tool_registry = self
-            .tool_registry
-            .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
+        // Get or create tool registry (defaults to built-in tools)
+        let tool_registry = self.tool_registry.unwrap_or_else(|| {
+            let persistence_arc = Arc::new(persistence.clone());
+            Arc::new(ToolRegistry::with_builtin_tools(Some(persistence_arc)))
+        });
 
         // Get or create policy engine (defaults to empty policy engine, or load from persistence)
         let policy_engine = if let Some(engine) = self.policy_engine {

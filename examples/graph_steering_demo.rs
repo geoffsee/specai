@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use serde_json::json;
 use spec_ai::agent::{AgentBuilder, AgentCore};
 use spec_ai::config::{AgentProfile, AppConfig};
@@ -6,7 +7,6 @@ use spec_ai::persistence::Persistence;
 use spec_ai::tools::{Tool, ToolRegistry, ToolResult};
 use spec_ai::types::{EdgeType, NodeType};
 use std::sync::Arc;
-use async_trait::async_trait;
 
 /// This example demonstrates how the knowledge graph steers CLI behavior
 /// by influencing tool recommendations, memory recall, and decision making.
@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
     profile.auto_graph = true;
     profile.graph_steering = true;
     profile.graph_depth = 3;
-    profile.graph_weight = 0.6;  // 60% graph, 40% semantic
+    profile.graph_weight = 0.6; // 60% graph, 40% semantic
     profile.graph_threshold = 0.7;
 
     println!("Graph Configuration:");
@@ -217,8 +217,12 @@ fn demonstrate_tool_recommendation(persistence: &Persistence, session_id: &str) 
                         let tool_name = tool_node.properties["name"].as_str().unwrap_or("Unknown");
                         let confidence = edge.weight;
 
-                        if confidence >= 0.7 {  // Graph threshold
-                            println!("  → Recommended: {} (confidence: {:.2})", tool_name, confidence);
+                        if confidence >= 0.7 {
+                            // Graph threshold
+                            println!(
+                                "  → Recommended: {} (confidence: {:.2})",
+                                tool_name, confidence
+                            );
                         }
                     }
                 }
@@ -247,7 +251,7 @@ async fn demonstrate_graph_memory(persistence: &Persistence, session_id: &str) -
                     session_id,
                     node.id,
                     spec_ai::types::TraversalDirection::Both,
-                    2,  // 2 hops
+                    2, // 2 hops
                 )?;
 
                 println!("  Related context (via graph traversal):");
@@ -292,8 +296,10 @@ fn demonstrate_decision_steering(persistence: &Persistence, session_id: &str) ->
                 for dep_edge in deps {
                     if dep_edge.edge_type == EdgeType::DependsOn {
                         if let Some(dep_node) = persistence.get_graph_node(dep_edge.target_id)? {
-                            let dep_name = dep_node.properties["name"].as_str().unwrap_or("Unknown");
-                            let dep_status = dep_node.properties["status"].as_str().unwrap_or("unknown");
+                            let dep_name =
+                                dep_node.properties["name"].as_str().unwrap_or("Unknown");
+                            let dep_status =
+                                dep_node.properties["status"].as_str().unwrap_or("unknown");
 
                             println!("Graph Analysis:");
                             println!("  Payment gateway depends on: {}", dep_name);

@@ -8,7 +8,7 @@ use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::{PolicyDecision, PolicyEngine};
 use crate::tools::{ToolRegistry, ToolResult};
-use crate::types::{Message, MessageRole, NodeType, EdgeType, TraversalDirection};
+use crate::types::{EdgeType, Message, MessageRole, NodeType, TraversalDirection};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use regex::Regex;
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{warn, info, debug};
+use tracing::{debug, info, warn};
 
 /// Output from an agent execution step
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,9 +362,13 @@ impl AgentCore {
                             // Add messages from related nodes
                             for neighbor in neighbors {
                                 if neighbor.node_type == NodeType::Message {
-                                    if let Some(related_msg_id) = neighbor.properties["message_id"].as_i64() {
+                                    if let Some(related_msg_id) =
+                                        neighbor.properties["message_id"].as_i64()
+                                    {
                                         if !seen_ids.contains(&related_msg_id) {
-                                            if let Some(related_msg) = self.persistence.get_message(related_msg_id)? {
+                                            if let Some(related_msg) =
+                                                self.persistence.get_message(related_msg_id)?
+                                            {
                                                 seen_ids.insert(related_msg.id);
                                                 graph_messages.push(related_msg);
                                             }
@@ -444,7 +448,12 @@ impl AgentCore {
 
                                         for neighbor in neighbors {
                                             // Include related facts, concepts, and entities
-                                            if matches!(neighbor.node_type, NodeType::Fact | NodeType::Concept | NodeType::Entity) {
+                                            if matches!(
+                                                neighbor.node_type,
+                                                NodeType::Fact
+                                                    | NodeType::Concept
+                                                    | NodeType::Entity
+                                            ) {
                                                 // Create a synthetic message for graph context
                                                 let graph_content = format!(
                                                     "[Graph Context - {} {}]: {}",
@@ -723,12 +732,16 @@ impl AgentCore {
         Ok(())
     }
 
-   // Entity extraction - can use fast model if configured
+    // Entity extraction - can use fast model if configured
     fn extract_entities_from_text(&self, text: &str) -> Vec<ExtractedEntity> {
         // If fast reasoning is enabled and task is delegated to fast model, use it
-        if self.profile.fast_reasoning &&
-           self.fast_provider.is_some() &&
-           self.profile.fast_model_tasks.contains(&"entity_extraction".to_string()) {
+        if self.profile.fast_reasoning
+            && self.fast_provider.is_some()
+            && self
+                .profile
+                .fast_model_tasks
+                .contains(&"entity_extraction".to_string())
+        {
             // Use fast model for entity extraction (would be async in production)
             debug!("Using fast model for entity extraction");
             // For now, fall back to simple extraction
@@ -751,7 +764,8 @@ impl AgentCore {
         }
 
         // Extract email addresses
-        let email_regex = regex::Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b").unwrap();
+        let email_regex =
+            regex::Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b").unwrap();
         for mat in email_regex.find_iter(text) {
             entities.push(ExtractedEntity {
                 name: mat.as_str().to_string(),
@@ -776,11 +790,7 @@ impl AgentCore {
     }
 
     /// Use fast model for preliminary reasoning tasks
-    async fn fast_reasoning(
-        &self,
-        task: &str,
-        input: &str,
-    ) -> Result<(String, f32)> {
+    async fn fast_reasoning(&self, task: &str, input: &str) -> Result<(String, f32)> {
         if let Some(ref fast_provider) = self.fast_provider {
             let prompt = format!(
                 "Task: {}\nInput: {}\n\nProvide a concise response and confidence score (0-1):",
@@ -816,14 +826,20 @@ impl AgentCore {
         }
 
         // Check if task type is delegated to fast model
-        if !self.profile.fast_model_tasks.contains(&task_type.to_string()) {
+        if !self
+            .profile
+            .fast_model_tasks
+            .contains(&task_type.to_string())
+        {
             return false; // Use main model
         }
 
         // Check complexity threshold
         if complexity_score > self.profile.escalation_threshold {
-            info!("Task complexity {} exceeds threshold {}, using main model",
-                  complexity_score, self.profile.escalation_threshold);
+            info!(
+                "Task complexity {} exceeds threshold {}, using main model",
+                complexity_score, self.profile.escalation_threshold
+            );
             return false; // Use main model
         }
 

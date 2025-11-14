@@ -53,7 +53,6 @@ pub struct AgentProfile {
     pub max_context_tokens: Option<usize>,
 
     // ========== Knowledge Graph Configuration ==========
-
     /// Enable knowledge graph features for this agent
     #[serde(default)]
     pub enable_graph: bool,
@@ -83,7 +82,6 @@ pub struct AgentProfile {
     pub graph_steering: bool,
 
     // ========== Multi-Model Reasoning Configuration ==========
-
     /// Enable fast reasoning with a smaller model
     #[serde(default)]
     pub fast_reasoning: bool,
@@ -123,15 +121,15 @@ impl AgentProfile {
     }
 
     fn default_graph_weight() -> f32 {
-        0.5  // Equal weight to graph and semantic
+        0.5 // Equal weight to graph and semantic
     }
 
     fn default_graph_threshold() -> f32 {
-        0.7  // Recommend tools with >70% relevance
+        0.7 // Recommend tools with >70% relevance
     }
 
     fn default_fast_temperature() -> f32 {
-        0.3  // Lower temperature for consistency in fast model
+        0.3 // Lower temperature for consistency in fast model
     }
 
     fn default_fast_tasks() -> Vec<String> {
@@ -145,7 +143,7 @@ impl AgentProfile {
     }
 
     fn default_escalation_threshold() -> f32 {
-        0.6  // Escalate to main model if confidence < 60%
+        0.6 // Escalate to main model if confidence < 60%
     }
 
     /// Validate the agent profile configuration
@@ -266,15 +264,15 @@ impl Default for AgentProfile {
             memory_k: Self::default_memory_k(),
             top_p: Self::default_top_p(),
             max_context_tokens: None,
-            enable_graph: true,  // Enable by default
-            graph_memory: true,  // Enable by default
+            enable_graph: true, // Enable by default
+            graph_memory: true, // Enable by default
             graph_depth: Self::default_graph_depth(),
             graph_weight: Self::default_graph_weight(),
-            auto_graph: true,  // Enable by default
+            auto_graph: true, // Enable by default
             graph_threshold: Self::default_graph_threshold(),
-            graph_steering: true,  // Enable by default
-            fast_reasoning: true,  // Enable multi-model by default
-            fast_model_provider: Some("mlx".to_string()),  // Default to MLX for Apple Silicon
+            graph_steering: true,                         // Enable by default
+            fast_reasoning: true,                         // Enable multi-model by default
+            fast_model_provider: Some("mlx".to_string()), // Default to MLX for Apple Silicon
             fast_model_name: Some("mlx-community/Llama-3.2-3B-Instruct-4bit".to_string()),
             fast_model_temperature: Self::default_fast_temperature(),
             fast_model_tasks: Self::default_fast_tasks(),
@@ -296,7 +294,10 @@ mod tests {
         // Verify multi-model is enabled by default
         assert!(profile.fast_reasoning);
         assert_eq!(profile.fast_model_provider, Some("mlx".to_string()));
-        assert_eq!(profile.fast_model_name, Some("mlx-community/Llama-3.2-3B-Instruct-4bit".to_string()));
+        assert_eq!(
+            profile.fast_model_name,
+            Some("mlx-community/Llama-3.2-3B-Instruct-4bit".to_string())
+        );
         assert_eq!(profile.fast_model_temperature, 0.3);
         assert_eq!(profile.escalation_threshold, 0.6);
 

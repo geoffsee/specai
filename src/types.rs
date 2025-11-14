@@ -82,12 +82,12 @@ pub struct GraphNode {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NodeType {
-    Entity,      // Person, place, thing
-    Concept,     // Abstract ideas
-    Fact,        // Statements or claims
-    Message,     // Linked to messages table
-    ToolResult,  // Linked to tool_log
-    Event,       // Temporal events
+    Entity,     // Person, place, thing
+    Concept,    // Abstract ideas
+    Fact,       // Statements or claims
+    Message,    // Linked to messages table
+    ToolResult, // Linked to tool_log
+    Event,      // Temporal events
 }
 
 impl NodeType {
@@ -136,10 +136,10 @@ pub enum EdgeType {
     CausedBy,
     PartOf,
     Mentions,
-    FollowsFrom,  // For conversation flow
-    Uses,         // Tool usage
-    Produces,     // Tool output
-    DependsOn,    // Dependencies
+    FollowsFrom, // For conversation flow
+    Uses,        // Tool usage
+    Produces,    // Tool output
+    DependsOn,   // Dependencies
     Custom(String),
 }
 
@@ -175,7 +175,7 @@ impl EdgeType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphQuery {
-    pub pattern: String,  // SQL/PGQ pattern
+    pub pattern: String, // SQL/PGQ pattern
     pub parameters: HashMap<String, serde_json::Value>,
     pub limit: Option<usize>,
     pub return_type: GraphQueryReturnType,

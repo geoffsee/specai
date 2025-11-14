@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::persistence::Persistence;
@@ -155,21 +155,18 @@ impl Tool for GraphTool {
                 let label = label.to_string();
 
                 let result = tokio::task::spawn_blocking(move || {
-                    persistence.insert_graph_node(
-                        &session_id,
-                        node_type,
-                        &label,
-                        &properties,
-                        None,
-                    )
+                    persistence.insert_graph_node(&session_id, node_type, &label, &properties, None)
                 })
                 .await
                 .context("task join error")??;
 
-                Ok(ToolResult::success(json!({
-                    "node_id": result,
-                    "message": format!("Created node with ID {}", result)
-                }).to_string()))
+                Ok(ToolResult::success(
+                    json!({
+                        "node_id": result,
+                        "message": format!("Created node with ID {}", result)
+                    })
+                    .to_string(),
+                ))
             }
 
             "create_edge" => {
@@ -211,10 +208,13 @@ impl Tool for GraphTool {
                 .await
                 .context("task join error")??;
 
-                Ok(ToolResult::success(json!({
-                    "edge_id": result,
-                    "message": format!("Created edge with ID {}", result)
-                }).to_string()))
+                Ok(ToolResult::success(
+                    json!({
+                        "edge_id": result,
+                        "message": format!("Created edge with ID {}", result)
+                    })
+                    .to_string(),
+                ))
             }
 
             "get_node" => {
@@ -222,11 +222,10 @@ impl Tool for GraphTool {
                     .as_i64()
                     .context("node_id is required for get_node")?;
 
-                let result = tokio::task::spawn_blocking(move || {
-                    persistence.get_graph_node(node_id)
-                })
-                .await
-                .context("task join error")??;
+                let result =
+                    tokio::task::spawn_blocking(move || persistence.get_graph_node(node_id))
+                        .await
+                        .context("task join error")??;
 
                 match result {
                     Some(node) => Ok(ToolResult::success(serde_json::to_string_pretty(&node)?)),
@@ -239,11 +238,10 @@ impl Tool for GraphTool {
                     .as_i64()
                     .context("edge_id is required for get_edge")?;
 
-                let result = tokio::task::spawn_blocking(move || {
-                    persistence.get_graph_edge(edge_id)
-                })
-                .await
-                .context("task join error")??;
+                let result =
+                    tokio::task::spawn_blocking(move || persistence.get_graph_edge(edge_id))
+                        .await
+                        .context("task join error")??;
 
                 match result {
                     Some(edge) => Ok(ToolResult::success(serde_json::to_string_pretty(&edge)?)),
@@ -262,10 +260,13 @@ impl Tool for GraphTool {
                 .await
                 .context("task join error")??;
 
-                Ok(ToolResult::success(json!({
-                    "count": result.len(),
-                    "nodes": result
-                }).to_string()))
+                Ok(ToolResult::success(
+                    json!({
+                        "count": result.len(),
+                        "nodes": result
+                    })
+                    .to_string(),
+                ))
             }
 
             "list_edges" => {
@@ -279,10 +280,13 @@ impl Tool for GraphTool {
                 .await
                 .context("task join error")??;
 
-                Ok(ToolResult::success(json!({
-                    "count": result.len(),
-                    "edges": result
-                }).to_string()))
+                Ok(ToolResult::success(
+                    json!({
+                        "count": result.len(),
+                        "edges": result
+                    })
+                    .to_string(),
+                ))
             }
 
             "delete_node" => {
@@ -290,11 +294,9 @@ impl Tool for GraphTool {
                     .as_i64()
                     .context("node_id is required for delete_node")?;
 
-                tokio::task::spawn_blocking(move || {
-                    persistence.delete_graph_node(node_id)
-                })
-                .await
-                .context("task join error")??;
+                tokio::task::spawn_blocking(move || persistence.delete_graph_node(node_id))
+                    .await
+                    .context("task join error")??;
 
                 Ok(ToolResult::success(format!("Deleted node {}", node_id)))
             }
@@ -304,11 +306,9 @@ impl Tool for GraphTool {
                     .as_i64()
                     .context("edge_id is required for delete_edge")?;
 
-                tokio::task::spawn_blocking(move || {
-                    persistence.delete_graph_edge(edge_id)
-                })
-                .await
-                .context("task join error")??;
+                tokio::task::spawn_blocking(move || persistence.delete_graph_edge(edge_id))
+                    .await
+                    .context("task join error")??;
 
                 Ok(ToolResult::success(format!("Deleted edge {}", edge_id)))
             }
@@ -345,16 +345,22 @@ impl Tool for GraphTool {
                 .context("task join error")??;
 
                 match result {
-                    Some(path) => Ok(ToolResult::success(json!({
-                        "found": true,
-                        "length": path.length,
-                        "total_weight": path.weight,
-                        "path": path
-                    }).to_string())),
-                    None => Ok(ToolResult::success(json!({
-                        "found": false,
-                        "message": format!("No path found from {} to {}", source_id, target_id)
-                    }).to_string())),
+                    Some(path) => Ok(ToolResult::success(
+                        json!({
+                            "found": true,
+                            "length": path.length,
+                            "total_weight": path.weight,
+                            "path": path
+                        })
+                        .to_string(),
+                    )),
+                    None => Ok(ToolResult::success(
+                        json!({
+                            "found": false,
+                            "message": format!("No path found from {} to {}", source_id, target_id)
+                        })
+                        .to_string(),
+                    )),
                 }
             }
 
@@ -379,13 +385,19 @@ impl Tool for GraphTool {
                 .await
                 .context("task join error")??;
 
-                Ok(ToolResult::success(json!({
-                    "count": result.len(),
-                    "neighbors": result
-                }).to_string()))
+                Ok(ToolResult::success(
+                    json!({
+                        "count": result.len(),
+                        "neighbors": result
+                    })
+                    .to_string(),
+                ))
             }
 
-            _ => Ok(ToolResult::failure(format!("Unknown operation: {}", operation))),
+            _ => Ok(ToolResult::failure(format!(
+                "Unknown operation: {}",
+                operation
+            ))),
         }
     }
 }

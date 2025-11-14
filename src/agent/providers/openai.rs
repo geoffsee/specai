@@ -263,7 +263,10 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_creation() {
         let provider = OpenAIProvider::new();
         assert_eq!(provider.model, "gpt-4.1-mini");
@@ -271,14 +274,20 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_with_model() {
         let provider = OpenAIProvider::new().with_model("gpt-4.1");
         assert_eq!(provider.model, "gpt-4.1");
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_with_system_message() {
         let provider = OpenAIProvider::new().with_system_message("You are a helpful assistant.");
         assert_eq!(
@@ -288,7 +297,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_metadata() {
         let provider = OpenAIProvider::new();
         let metadata = provider.metadata();
@@ -304,14 +316,20 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_kind() {
         let provider = OpenAIProvider::new();
         assert_eq!(provider.kind(), ProviderKind::OpenAI);
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_build_messages_without_system() {
         let provider = OpenAIProvider::new();
         let messages = provider.build_messages("Hello, world!").unwrap();
@@ -320,7 +338,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_build_messages_with_system() {
         let provider = OpenAIProvider::new().with_system_message("You are a helpful assistant.");
         let messages = provider.build_messages("Hello, world!").unwrap();

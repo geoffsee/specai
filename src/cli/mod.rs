@@ -5,10 +5,12 @@ pub mod formatting;
 use anyhow::{Context, Result};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::agent::{AgentBuilder, AgentCore};
+use crate::agent::core::MemoryRecallStrategy;
+use crate::agent::{AgentBuilder, AgentCore, AgentOutput};
 use crate::config::{AgentProfile, AgentRegistry, AppConfig};
 use crate::persistence::Persistence;
 use crate::policy::PolicyEngine;
+use terminal_size::terminal_size;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -109,6 +111,7 @@ pub struct CliState {
     pub persistence: Persistence,
     pub registry: AgentRegistry,
     pub agent: AgentCore,
+    pub reasoning_messages: Vec<String>,
 }
 
 impl CliState {
@@ -158,6 +161,7 @@ impl CliState {
             persistence,
             registry,
             agent,
+            reasoning_messages: vec!["Reasoning: idle".to_string()],
         })
     }
 
@@ -288,7 +292,8 @@ impl CliState {
                     graph_depth = 3\n\
                     graph_weight = 0.5\n\
                     graph_threshold = 0.7\n\n\
-                    Then run: /config reload".to_string()
+                    Then run: /config reload"
+                        .to_string(),
                 ))
             }
             Command::GraphDisable => {
@@ -297,7 +302,8 @@ impl CliState {
                     "To disable knowledge graph features, update your config.toml:\n\n\
                     [agents.your_agent_name]\n\
                     enable_graph = false\n\n\
-                    Then run: /config reload".to_string()
+                    Then run: /config reload"
+                        .to_string(),
                 ))
             }
             Command::GraphStatus => {
@@ -324,12 +330,18 @@ impl CliState {
             Command::GraphShow(limit) => {
                 let limit_val = limit.unwrap_or(10) as i64;
                 let session_id = self.agent.session_id();
-                let nodes = self.persistence.list_graph_nodes(session_id, None, Some(limit_val))?;
+                let nodes = self
+                    .persistence
+                    .list_graph_nodes(session_id, None, Some(limit_val))?;
 
                 if nodes.is_empty() {
                     Ok(Some("No graph nodes in current session.".to_string()))
                 } else {
-                    let mut output = format!("Graph Nodes (showing {} of {}):\n", nodes.len(), nodes.len());
+                    let mut output = format!(
+                        "Graph Nodes (showing {} of {}):\n",
+                        nodes.len(),
+                        nodes.len()
+                    );
                     for node in &nodes {
                         output.push_str(&format!(
                             "  [{:?}] {} - {}\n",
@@ -361,10 +373,14 @@ impl CliState {
                     self.persistence.delete_graph_node(node.id)?;
                 }
 
-                Ok(Some(format!("Cleared {} graph nodes for session '{}'", count, session_id)))
+                Ok(Some(format!(
+                    "Cleared {} graph nodes for session '{}'",
+                    count, session_id
+                )))
             }
             Command::Message(text) => {
                 let output = self.agent.run_step(&text).await?;
+                self.update_reasoning_messages(&output);
                 let mut formatted =
                     formatting::render_agent_response("assistant", &output.response);
                 if let Some(stats) = formatting::render_run_stats(&output) {
@@ -389,8 +405,7 @@ impl CliState {
         stdout.flush().await?;
 
         loop {
-            stdout.write_all(b"> ").await?;
-            stdout.flush().await?;
+            self.render_reasoning_prompt(&mut stdout).await?;
             line.clear();
             let n = reader.read_line(&mut line).await?;
             if n == 0 {
@@ -409,12 +424,110 @@ impl CliState {
         }
         Ok(())
     }
+
+    fn update_reasoning_messages(&mut self, output: &AgentOutput) {
+        self.reasoning_messages = Self::format_reasoning_messages(output);
+    }
+
+    fn format_reasoning_messages(output: &AgentOutput) -> Vec<String> {
+        let mut lines = Vec::with_capacity(3);
+
+        if let Some(stats) = &output.recall_stats {
+            match &stats.strategy {
+                MemoryRecallStrategy::Semantic {
+                    requested,
+                    returned,
+                } => lines.push(format!(
+                    "Recall: semantic (requested {}, returned {})",
+                    requested, returned
+                )),
+                MemoryRecallStrategy::RecentContext { limit } => {
+                    lines.push(format!("Recall: recent context (last {} messages)", limit))
+                }
+            }
+        } else {
+            lines.push("Recall: not used".to_string());
+        }
+
+        if let Some(invocation) = output.tool_invocations.last() {
+            let status = if invocation.success { "ok" } else { "err" };
+            lines.push(format!("Tool: {} ({})", invocation.name, status));
+        } else {
+            lines.push("Tool: idle".to_string());
+        }
+
+        if let Some(reason) = &output.finish_reason {
+            lines.push(format!("Finish: {}", reason));
+        } else if let Some(usage) = &output.token_usage {
+            lines.push(format!(
+                "Tokens: P {} C {} T {}",
+                usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+            ));
+        } else {
+            lines.push("Finish: pending".to_string());
+        }
+
+        lines
+    }
+
+    fn pad_line_to_width(line: &str, width: usize) -> String {
+        if width == 0 {
+            return String::new();
+        }
+        let truncated: String = line.chars().take(width).collect();
+        let truncated_len = truncated.chars().count();
+        if truncated_len >= width {
+            return truncated;
+        }
+        let mut padded = truncated;
+        padded.push_str(&" ".repeat(width - truncated_len));
+        padded
+    }
+
+    fn reasoning_display_lines(&self, width: usize) -> Vec<String> {
+        (0..3)
+            .map(|idx| {
+                let content = self
+                    .reasoning_messages
+                    .get(idx)
+                    .map(String::as_str)
+                    .unwrap_or("");
+                Self::pad_line_to_width(content, width)
+            })
+            .collect()
+    }
+
+    fn input_display_width(&self) -> usize {
+        let terminal_width = terminal_size().map(|(w, _)| w.0 as usize).unwrap_or(80);
+        let prompt_len = self.config.ui.prompt.chars().count();
+        if terminal_width <= prompt_len {
+            1
+        } else {
+            terminal_width - prompt_len
+        }
+    }
+
+    async fn render_reasoning_prompt(&self, stdout: &mut io::Stdout) -> Result<()> {
+        let width = self.input_display_width();
+        for line in self.reasoning_display_lines(width) {
+            stdout.write_all(line.as_bytes()).await?;
+            stdout.write_all(b"\n").await?;
+        }
+        stdout.write_all(b"\n").await?;
+        stdout.write_all(self.config.ui.prompt.as_bytes()).await?;
+        stdout.flush().await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::AgentOutput;
+    use crate::agent::core::{MemoryRecallStats, MemoryRecallStrategy, ToolInvocation};
+    use crate::agent::model::TokenUsage;
     use crate::config::{DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
+    use serde_json::json;
     use std::collections::HashMap;
     use tempfile::tempdir;
 
@@ -446,6 +559,79 @@ mod tests {
         );
         assert_eq!(parse_command("hello"), Command::Message("hello".into()));
         assert_eq!(parse_command("   "), Command::Empty);
+    }
+
+    #[test]
+    fn reasoning_messages_default() {
+        let output = AgentOutput {
+            response: String::new(),
+            response_message_id: None,
+            token_usage: None,
+            tool_invocations: Vec::new(),
+            finish_reason: None,
+            recall_stats: None,
+            run_id: "run-default".to_string(),
+        };
+        let lines = CliState::format_reasoning_messages(&output);
+        assert_eq!(
+            lines,
+            vec![
+                "Recall: not used".to_string(),
+                "Tool: idle".to_string(),
+                "Finish: pending".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn reasoning_messages_with_details() {
+        let stats = MemoryRecallStats {
+            strategy: MemoryRecallStrategy::Semantic {
+                requested: 5,
+                returned: 2,
+            },
+            matches: Vec::new(),
+        };
+        let invocation = ToolInvocation {
+            name: "search".to_string(),
+            arguments: json!({}),
+            success: true,
+            output: Some("ok".to_string()),
+            error: None,
+        };
+        let output = AgentOutput {
+            response: String::new(),
+            response_message_id: None,
+            token_usage: None,
+            tool_invocations: vec![invocation],
+            finish_reason: Some("stop".to_string()),
+            recall_stats: Some(stats),
+            run_id: "run-details".to_string(),
+        };
+        let lines = CliState::format_reasoning_messages(&output);
+        assert!(lines[0].starts_with("Recall: semantic"));
+        assert!(lines[1].contains("search"));
+        assert_eq!(lines[2], "Finish: stop");
+    }
+
+    #[test]
+    fn reasoning_messages_tokens() {
+        let usage = TokenUsage {
+            prompt_tokens: 4,
+            completion_tokens: 6,
+            total_tokens: 10,
+        };
+        let output = AgentOutput {
+            response: String::new(),
+            response_message_id: None,
+            token_usage: Some(usage),
+            tool_invocations: Vec::new(),
+            finish_reason: None,
+            recall_stats: None,
+            run_id: "run-tokens".to_string(),
+        };
+        let lines = CliState::format_reasoning_messages(&output);
+        assert_eq!(lines[2], "Tokens: P 4 C 6 T 10");
     }
 
     #[tokio::test]

@@ -8,8 +8,8 @@ use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
 
 use crate::types::{
-    EdgeType, GraphEdge, GraphNode, GraphPath,
-    MemoryVector, Message, MessageRole, NodeType, PolicyEntry, TraversalDirection,
+    EdgeType, GraphEdge, GraphNode, GraphPath, MemoryVector, Message, MessageRole, NodeType,
+    PolicyEntry, TraversalDirection,
 };
 
 #[derive(Clone, Debug)]
@@ -548,7 +548,8 @@ impl Persistence {
                     self.list_graph_edges(session_id, None, Some(current_id))?
                 }
                 TraversalDirection::Both => {
-                    let mut out_edges = self.list_graph_edges(session_id, Some(current_id), None)?;
+                    let mut out_edges =
+                        self.list_graph_edges(session_id, Some(current_id), None)?;
                     let in_edges = self.list_graph_edges(session_id, None, Some(current_id))?;
                     out_edges.extend(in_edges);
                     out_edges

@@ -39,10 +39,12 @@ fn test_graph_node_operations() -> Result<()> {
     assert_eq!(nodes.len(), 1);
 
     // List nodes by type
-    let entity_nodes = persistence.list_graph_nodes(session_id, Some(NodeType::Entity), Some(10))?;
+    let entity_nodes =
+        persistence.list_graph_nodes(session_id, Some(NodeType::Entity), Some(10))?;
     assert_eq!(entity_nodes.len(), 1);
 
-    let concept_nodes = persistence.list_graph_nodes(session_id, Some(NodeType::Concept), Some(10))?;
+    let concept_nodes =
+        persistence.list_graph_nodes(session_id, Some(NodeType::Concept), Some(10))?;
     assert_eq!(concept_nodes.len(), 0);
 
     // Delete the node
@@ -151,59 +153,23 @@ fn test_graph_traversal() -> Result<()> {
     )?;
 
     // Create edges
-    persistence.insert_graph_edge(
-        session_id,
-        a_id,
-        b_id,
-        EdgeType::DependsOn,
-        None,
-        None,
-        1.0,
-    )?;
-    persistence.insert_graph_edge(
-        session_id,
-        b_id,
-        c_id,
-        EdgeType::DependsOn,
-        None,
-        None,
-        1.0,
-    )?;
-    persistence.insert_graph_edge(
-        session_id,
-        b_id,
-        d_id,
-        EdgeType::DependsOn,
-        None,
-        None,
-        1.0,
-    )?;
+    persistence.insert_graph_edge(session_id, a_id, b_id, EdgeType::DependsOn, None, None, 1.0)?;
+    persistence.insert_graph_edge(session_id, b_id, c_id, EdgeType::DependsOn, None, None, 1.0)?;
+    persistence.insert_graph_edge(session_id, b_id, d_id, EdgeType::DependsOn, None, None, 1.0)?;
 
     // Test neighbor traversal from A (depth 1)
-    let neighbors_1 = persistence.traverse_neighbors(
-        session_id,
-        a_id,
-        TraversalDirection::Outgoing,
-        1,
-    )?;
+    let neighbors_1 =
+        persistence.traverse_neighbors(session_id, a_id, TraversalDirection::Outgoing, 1)?;
     assert_eq!(neighbors_1.len(), 1); // Only B
 
     // Test neighbor traversal from A (depth 2)
-    let neighbors_2 = persistence.traverse_neighbors(
-        session_id,
-        a_id,
-        TraversalDirection::Outgoing,
-        2,
-    )?;
+    let neighbors_2 =
+        persistence.traverse_neighbors(session_id, a_id, TraversalDirection::Outgoing, 2)?;
     assert_eq!(neighbors_2.len(), 3); // B, C, D
 
     // Test incoming traversal from C
-    let incoming = persistence.traverse_neighbors(
-        session_id,
-        c_id,
-        TraversalDirection::Incoming,
-        1,
-    )?;
+    let incoming =
+        persistence.traverse_neighbors(session_id, c_id, TraversalDirection::Incoming, 1)?;
     assert_eq!(incoming.len(), 1); // Only B
 
     // Test shortest path from A to C

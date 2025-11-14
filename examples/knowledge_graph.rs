@@ -79,7 +79,10 @@ fn main() -> Result<()> {
         }),
         None,
     )?;
-    println!("  Created node: Natural Language Processing (ID: {})", nlp_id);
+    println!(
+        "  Created node: Natural Language Processing (ID: {})",
+        nlp_id
+    );
 
     // Create person nodes
     let turing_id = persistence.insert_graph_node(
@@ -187,7 +190,8 @@ fn main() -> Result<()> {
     for edge in ai_parts {
         if edge.edge_type == EdgeType::PartOf {
             if let Some(node) = persistence.get_graph_node(edge.source_id)? {
-                println!("   - {} ({})",
+                println!(
+                    "   - {} ({})",
                     node.properties["name"].as_str().unwrap_or("Unknown"),
                     node.label
                 );
@@ -197,14 +201,11 @@ fn main() -> Result<()> {
 
     // Example 2: Traverse neighbors of Machine Learning
     println!("\n2. Neighbors of Machine Learning (depth 1):");
-    let ml_neighbors = persistence.traverse_neighbors(
-        session_id,
-        ml_id,
-        TraversalDirection::Both,
-        1,
-    )?;
+    let ml_neighbors =
+        persistence.traverse_neighbors(session_id, ml_id, TraversalDirection::Both, 1)?;
     for neighbor in ml_neighbors {
-        println!("   - {} ({})",
+        println!(
+            "   - {} ({})",
             neighbor.properties["name"].as_str().unwrap_or("Unknown"),
             neighbor.label
         );
@@ -216,7 +217,10 @@ fn main() -> Result<()> {
         println!("   Path length: {} edges", path.length);
         println!("   Nodes in path:");
         for node in path.nodes {
-            println!("     -> {}", node.properties["name"].as_str().unwrap_or("Unknown"));
+            println!(
+                "     -> {}",
+                node.properties["name"].as_str().unwrap_or("Unknown")
+            );
         }
     }
 
@@ -224,7 +228,8 @@ fn main() -> Result<()> {
     println!("\n4. All Person entities in the graph:");
     let people = persistence.list_graph_nodes(session_id, Some(NodeType::Entity), None)?;
     for person in people.iter().filter(|n| n.label == "Person") {
-        println!("   - {} (born {})",
+        println!(
+            "   - {} (born {})",
             person.properties["name"].as_str().unwrap_or("Unknown"),
             person.properties["birth_year"]
         );
@@ -238,9 +243,10 @@ fn main() -> Result<()> {
             if edge_type == "PIONEERED" {
                 if let (Some(person), Some(concept)) = (
                     persistence.get_graph_node(edge.source_id)?,
-                    persistence.get_graph_node(edge.target_id)?
+                    persistence.get_graph_node(edge.target_id)?,
                 ) {
-                    println!("   {} pioneered {}",
+                    println!(
+                        "   {} pioneered {}",
                         person.properties["name"].as_str().unwrap_or("Unknown"),
                         concept.properties["name"].as_str().unwrap_or("Unknown")
                     );
@@ -251,10 +257,12 @@ fn main() -> Result<()> {
 
     // Example 6: Explore the full knowledge graph structure
     println!("\n6. Complete graph structure:");
-    println!("   Total nodes: {}",
+    println!(
+        "   Total nodes: {}",
         persistence.list_graph_nodes(session_id, None, None)?.len()
     );
-    println!("   Total edges: {}",
+    println!(
+        "   Total edges: {}",
         persistence.list_graph_edges(session_id, None, None)?.len()
     );
 
@@ -272,15 +280,18 @@ fn main() -> Result<()> {
     for edge in edges.iter().take(5) {
         if let (Some(subject), Some(object)) = (
             persistence.get_graph_node(edge.source_id)?,
-            persistence.get_graph_node(edge.target_id)?
+            persistence.get_graph_node(edge.target_id)?,
         ) {
-            let predicate = edge.predicate.as_ref()
+            let predicate = edge
+                .predicate
+                .as_ref()
                 .map(|s| s.as_str())
                 .unwrap_or_else(|| match &edge.edge_type {
                     EdgeType::Custom(s) => s.as_str(),
-                    _ => "relates_to"
+                    _ => "relates_to",
                 });
-            println!("   ({}) --[{}]--> ({})",
+            println!(
+                "   ({}) --[{}]--> ({})",
                 subject.properties["name"].as_str().unwrap_or("?"),
                 predicate,
                 object.properties["name"].as_str().unwrap_or("?")
