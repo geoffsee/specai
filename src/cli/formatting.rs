@@ -149,27 +149,85 @@ pub fn render_run_stats(output: &AgentOutput) -> Option<String> {
     }
 
     if !output.tool_invocations.is_empty() {
-        let mut section = String::from("## Tool Calls\n");
-        for inv in &output.tool_invocations {
-            section.push_str(&format!(
-                "- **{}** [{}]",
-                inv.name,
-                if inv.success { "ok" } else { "error" }
-            ));
-            let args = to_string(&inv.arguments).unwrap_or_else(|_| "{}".to_string());
-            section.push_str(&format!(" args: `{}`", args));
+        let mut section = String::from("## Tool Calls\n\n");
+        for (idx, inv) in output.tool_invocations.iter().enumerate() {
+            // Status symbol
+            let status_symbol = if inv.success { "✓" } else { "✗" };
 
-            if let Some(out) = &inv.output {
-                if !out.is_empty() {
-                    section.push_str(&format!(" → {}", out));
+            // Tool header
+            section.push_str(&format!("**{}. {} [{}]**\n\n", idx + 1, inv.name, status_symbol));
+
+            // Parse and format arguments nicely
+            if let Ok(args_map) = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(inv.arguments.clone()) {
+                for (key, value) in args_map.iter() {
+                    let formatted_value = match value {
+                        serde_json::Value::String(s) => {
+                            if s.len() > 80 {
+                                format!("{}...", &s[..77])
+                            } else {
+                                s.clone()
+                            }
+                        }
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        _ => to_string(value).unwrap_or_else(|_| "...".to_string())
+                    };
+                    section.push_str(&format!("  - **{}**: `{}`\n", key, formatted_value));
                 }
             }
 
-            if let Some(err) = &inv.error {
-                section.push_str(&format!(" (error: {})", err));
+            // Output section
+            if let Some(out) = &inv.output {
+                if !out.is_empty() {
+                    section.push_str("\n  **Result:**\n");
+
+                    // Try to parse as JSON for better formatting
+                    if let Ok(json_out) = serde_json::from_str::<serde_json::Value>(out) {
+                        // Extract key fields for common tool responses
+                        if let Some(obj) = json_out.as_object() {
+                            if let Some(stdout) = obj.get("stdout").and_then(|v| v.as_str()) {
+                                let lines: Vec<&str> = stdout.lines().collect();
+                                if !lines.is_empty() {
+                                    section.push_str(&format!("  - stdout: {} lines\n", lines.len()));
+                                    // Show first few lines if not too many
+                                    if lines.len() <= 5 {
+                                        for line in lines.iter().take(5) {
+                                            let trimmed = if line.len() > 60 { &line[..60] } else { line };
+                                            section.push_str(&format!("    `{}`\n", trimmed));
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(stderr) = obj.get("stderr").and_then(|v| v.as_str()) {
+                                if !stderr.is_empty() {
+                                    section.push_str(&format!("  - stderr: {}\n", stderr));
+                                }
+                            }
+                            if let Some(exit_code) = obj.get("exit_code") {
+                                section.push_str(&format!("  - exit_code: {}\n", exit_code));
+                            }
+                            if let Some(duration_ms) = obj.get("duration_ms") {
+                                section.push_str(&format!("  - duration: {}ms\n", duration_ms));
+                            }
+                        }
+                    } else {
+                        // Plain text output
+                        let trimmed = if out.len() > 200 {
+                            format!("{}... ({} chars)", &out[..197], out.len())
+                        } else {
+                            out.clone()
+                        };
+                        section.push_str(&format!("  ```\n  {}\n  ```\n", trimmed));
+                    }
+                }
             }
 
-            section.push('\n');
+            // Error section
+            if let Some(err) = &inv.error {
+                section.push_str(&format!("\n  **Error:** {}\n", err));
+            }
+
+            section.push_str("\n");
         }
         sections.push(section);
     }
