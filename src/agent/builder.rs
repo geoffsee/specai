@@ -4,15 +4,15 @@
 
 use crate::agent::core::AgentCore;
 use crate::agent::factory::{create_provider, resolve_api_key};
-use crate::agent::model::ModelProvider;
-#[cfg(feature = "mlx")]
-use crate::agent::model::ProviderKind;
+use crate::agent::model::{ModelProvider, ProviderKind};
 use crate::config::{AgentProfile, AgentRegistry, AppConfig, ModelConfig};
 use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::PolicyEngine;
 use crate::tools::ToolRegistry;
 use anyhow::{Context, Result, anyhow};
+#[cfg(feature = "openai")]
+use crate::agent::providers::openai::OpenAIProvider;
 #[cfg(feature = "mlx")]
 use async_openai::config::OpenAIConfig;
 use std::sync::Arc;
@@ -118,18 +118,7 @@ impl AgentBuilder {
             .profile
             .ok_or_else(|| anyhow!("Agent profile is required"))?;
 
-        // Get or create provider
-        let provider = if let Some(provider) = self.provider {
-            provider
-        } else if let Some(ref config) = self.config {
-            create_provider(&config.model).context("Failed to create provider from config")?
-        } else {
-            return Err(anyhow!(
-                "Either provider or config must be provided to build agent"
-            ));
-        };
-
-        // Get or create persistence
+        // Get or create persistence (needed for tool registry)
         let persistence = if let Some(persistence) = self.persistence {
             persistence
         } else if let Some(ref config) = self.config {
@@ -137,6 +126,65 @@ impl AgentBuilder {
         } else {
             return Err(anyhow!(
                 "Either persistence or config must be provided to build agent"
+            ));
+        };
+
+        // Get or create tool registry (defaults to built-in tools)
+        // Create this before the provider so OpenAI can be configured with tools
+        let tool_registry = self.tool_registry.unwrap_or_else(|| {
+            let persistence_arc = Arc::new(persistence.clone());
+            let registry = ToolRegistry::with_builtin_tools(Some(persistence_arc));
+            info!(
+                "Created tool registry with {} builtin tools",
+                registry.len()
+            );
+            for tool_name in registry.list() {
+                info!("  - Registered tool: {}", tool_name);
+            }
+            Arc::new(registry)
+        });
+
+        // Get or create provider with tools configured (for OpenAI)
+        let provider = if let Some(provider) = self.provider {
+            provider
+        } else if let Some(ref config) = self.config {
+            let mut base_provider = create_provider(&config.model)
+                .context("Failed to create provider from config")?;
+
+            // Configure OpenAI provider with tools for native function calling
+            #[cfg(feature = "openai")]
+            {
+                if base_provider.kind() == ProviderKind::OpenAI {
+                    let openai_tools = tool_registry.to_openai_tools();
+                    if !openai_tools.is_empty() {
+                        info!("Configuring OpenAI provider with {} tools for native function calling", openai_tools.len());
+
+                        // Recreate OpenAI provider with tools
+                        let api_key = if let Some(source) = &config.model.api_key_source {
+                            resolve_api_key(source)?
+                        } else {
+                            // Default to OPENAI_API_KEY environment variable
+                            std::env::var("OPENAI_API_KEY")
+                                .context("OPENAI_API_KEY environment variable not set")?
+                        };
+
+                        let mut openai_provider = OpenAIProvider::with_api_key(api_key);
+
+                        // Set model if specified in config
+                        if let Some(model_name) = &config.model.model_name {
+                            openai_provider = openai_provider.with_model(model_name.clone());
+                        }
+
+                        // Configure with tools and cast to trait object
+                        base_provider = Arc::new(openai_provider.with_tools(openai_tools));
+                    }
+                }
+            }
+
+            base_provider
+        } else {
+            return Err(anyhow!(
+                "Either provider or config must be provided to build agent"
             ));
         };
 
@@ -153,20 +201,6 @@ impl AgentBuilder {
         let session_id = self
             .session_id
             .unwrap_or_else(|| format!("session-{}", chrono::Utc::now().timestamp_millis()));
-
-        // Get or create tool registry (defaults to built-in tools)
-        let tool_registry = self.tool_registry.unwrap_or_else(|| {
-            let persistence_arc = Arc::new(persistence.clone());
-            let registry = ToolRegistry::with_builtin_tools(Some(persistence_arc));
-            info!(
-                "Created tool registry with {} builtin tools",
-                registry.len()
-            );
-            for tool_name in registry.list() {
-                info!("  - Registered tool: {}", tool_name);
-            }
-            Arc::new(registry)
-        });
 
         // Get or create policy engine (defaults to empty policy engine, or load from persistence)
         let policy_engine = if let Some(engine) = self.policy_engine {

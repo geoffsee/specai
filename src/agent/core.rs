@@ -3,7 +3,7 @@
 //! The heart of the agent system - orchestrates reasoning, memory, and model interaction.
 
 use crate::agent::model::{GenerationConfig, ModelProvider};
-use crate::config::AgentProfile;
+use crate::config::agent::AgentProfile;
 use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::{PolicyDecision, PolicyEngine};
@@ -11,7 +11,6 @@ use crate::tools::{ToolRegistry, ToolResult};
 use crate::types::{EdgeType, Message, MessageRole, NodeType, TraversalDirection};
 use anyhow::{Context, Result};
 use chrono::Utc;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -322,97 +321,103 @@ impl AgentCore {
                 finish_reason = response.finish_reason.clone();
                 final_response = response.content.clone();
 
-                // Check for tool calls in the response
-                if let Some(tool_call) = self.parse_tool_call(&response.content) {
-                    let tool_name = tool_call.0;
-                    let tool_args = tool_call.1;
+                // Check for SDK-native tool calls (function calling)
+                let sdk_tool_calls = response.tool_calls.clone().unwrap_or_default();
 
-                    // Check if tool is allowed
-                    if !self.is_tool_allowed(&tool_name) {
-                        let error_msg =
-                            format!("Tool '{}' is not allowed by agent policy", tool_name);
-                        prompt.push_str(&format!(
-                            "\n\nTOOL_ERROR: {}\n\nPlease continue without using this tool.",
-                            error_msg
-                        ));
-                        continue;
-                    }
+                if !sdk_tool_calls.is_empty() {
+                    // Process all tool calls from SDK response
+                    for tool_call in sdk_tool_calls {
+                        let tool_name = &tool_call.function_name;
+                        let tool_args = &tool_call.arguments;
 
-                    // Execute tool
-                    match self.execute_tool(&run_id, &tool_name, &tool_args).await {
-                        Ok(result) => {
-                            let invocation =
-                                ToolInvocation::from_result(&tool_name, tool_args.clone(), &result);
-                            let tool_output = invocation.output.clone().unwrap_or_default();
-                            let was_success = invocation.success;
-                            let error_message = invocation
-                                .error
-                                .clone()
-                                .unwrap_or_else(|| "Tool execution failed".to_string());
-                            tool_invocations.push(invocation);
-
-                            if let Some(goal) = goal_context.as_mut() {
-                                if let Err(err) = self
-                                    .record_goal_tool_result(goal, &tool_name, &tool_args, &result)
-                                {
-                                    warn!("Failed to record goal progress: {}", err);
-                                }
-                                if result.success && goal.requires_tool && !goal.satisfied {
-                                    if let Err(err) =
-                                        self.update_goal_status(goal, "in_progress", true, None)
-                                    {
-                                        warn!("Failed to update goal status: {}", err);
-                                    }
-                                }
-                            }
-
-                            if was_success {
-                                // Add tool result to prompt for next iteration
-                                prompt.push_str(&format!(
-                                    "\n\nTOOL_RESULT from {}:\n{}\n\nBased on this result, please continue.",
-                                    tool_name, tool_output
-                                ));
-                            } else {
-                                prompt.push_str(&format!(
-                                    "\n\nTOOL_ERROR: {}\n\nPlease continue without this tool.",
-                                    error_message
-                                ));
-                                continue;
-                            }
-
-                            // If the model response contains only the tool call, continue loop
-                            if response.content.trim().starts_with("TOOL_CALL:") {
-                                continue;
-                            }
-                        }
-                        Err(e) => {
-                            let error_msg = format!("Error executing tool '{}': {}", tool_name, e);
-                            prompt.push_str(&format!(
-                                "\n\nTOOL_ERROR: {}\n\nPlease continue without this tool.",
-                                error_msg
-                            ));
+                        // Check if tool is allowed
+                        if !self.is_tool_allowed(tool_name) {
+                            let error_msg =
+                                format!("Tool '{}' is not allowed by agent policy", tool_name);
+                            warn!("{}", error_msg);
                             tool_invocations.push(ToolInvocation {
-                                name: tool_name,
-                                arguments: tool_args,
+                                name: tool_name.clone(),
+                                arguments: tool_args.clone(),
                                 success: false,
                                 output: None,
                                 error: Some(error_msg),
                             });
                             continue;
                         }
+
+                        // Execute tool
+                        match self.execute_tool(&run_id, tool_name, tool_args).await {
+                            Ok(result) => {
+                                let invocation =
+                                    ToolInvocation::from_result(tool_name, tool_args.clone(), &result);
+                                let tool_output = invocation.output.clone().unwrap_or_default();
+                                let was_success = invocation.success;
+                                let error_message = invocation
+                                    .error
+                                    .clone()
+                                    .unwrap_or_else(|| "Tool execution failed".to_string());
+                                tool_invocations.push(invocation);
+
+                                if let Some(goal) = goal_context.as_mut() {
+                                    if let Err(err) = self
+                                        .record_goal_tool_result(goal, tool_name, tool_args, &result)
+                                    {
+                                        warn!("Failed to record goal progress: {}", err);
+                                    }
+                                    if result.success && goal.requires_tool && !goal.satisfied {
+                                        if let Err(err) =
+                                            self.update_goal_status(goal, "in_progress", true, None)
+                                        {
+                                            warn!("Failed to update goal status: {}", err);
+                                        }
+                                    }
+                                }
+
+                                if was_success {
+                                    // Add tool result to prompt for next iteration
+                                    prompt.push_str(&format!(
+                                        "\n\nTOOL_RESULT from {}:\n{}\n\nBased on this result, please continue.",
+                                        tool_name, tool_output
+                                    ));
+                                } else {
+                                    prompt.push_str(&format!(
+                                        "\n\nTOOL_ERROR: {}\n\nPlease continue without this tool.",
+                                        error_message
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                let error_msg = format!("Error executing tool '{}': {}", tool_name, e);
+                                warn!("{}", error_msg);
+                                prompt.push_str(&format!(
+                                    "\n\nTOOL_ERROR: {}\n\nPlease continue without this tool.",
+                                    error_msg
+                                ));
+                                tool_invocations.push(ToolInvocation {
+                                    name: tool_name.clone(),
+                                    arguments: tool_args.clone(),
+                                    success: false,
+                                    output: None,
+                                    error: Some(error_msg),
+                                });
+                            }
+                        }
                     }
+
+                    // Continue loop to process tool results
+                    continue;
                 }
 
                 if let Some(goal) = goal_context.as_ref() {
                     if goal.requires_tool && !goal.satisfied {
                         prompt.push_str(
-                            "\n\nGOAL_STATUS: pending. The user request requires executing an allowed tool. Emit a TOOL_CALL now.",
+                            "\n\nGOAL_STATUS: pending. The user request requires executing an allowed tool. Please call an appropriate tool.",
                         );
                         continue;
                     }
                 }
 
-                // No tool call found or response includes final answer, break
+                // No tool calls found or response includes final answer, break
                 break;
             }
         }
@@ -781,7 +786,7 @@ impl AgentCore {
         let mut prompt = String::new();
 
         // Add system prompt if configured
-        if let Some(ref system_prompt) = self.profile.prompt {
+        if let Some(system_prompt) = &self.profile.prompt {
             prompt.push_str("System: ");
             prompt.push_str(system_prompt);
             prompt.push_str("\n\n");
@@ -805,18 +810,6 @@ impl AgentCore {
                 }
             }
             prompt.push_str("\n");
-            prompt.push_str("To use a tool, respond with:\n");
-            prompt.push_str("TOOL_CALL: tool_name\n");
-            prompt.push_str("ARGS: {\"param\": \"value\"}\n\n");
-
-            // Add specific parameter hints for file_write tool
-            if available_tools
-                .iter()
-                .any(|t| t.to_string() == "file_write" && self.is_tool_allowed(t))
-            {
-                prompt.push_str("For file_write, use: ARGS: {\"path\": \"filename\", \"content\": \"file content\"}\n");
-                prompt.push_str("Example: TOOL_CALL: file_write\nARGS: {\"path\": \"example.py\", \"content\": \"print('hello')\"}\n\n");
-            }
         }
 
         // Add conversation context
@@ -1575,34 +1568,6 @@ impl AgentCore {
         Ok(())
     }
 
-    /// Parse tool call from model response
-    /// Expected formats:
-    /// 1. TOOL_CALL: tool_name\nARGS: {"arg1": "value1"}
-    /// 2. tool_name: tool_name\ntool_input: {"arg1": "value1"}
-    fn parse_tool_call(&self, response: &str) -> Option<(String, Value)> {
-        // Try the expected format first
-        let re1 = Regex::new(r"TOOL_CALL:\s*(\w+)\s*\nARGS:\s*(\{.*?\})").ok()?;
-        if let Some(captures) = re1.captures(response) {
-            let tool_name = captures.get(1)?.as_str().to_string();
-            let args_str = captures.get(2)?.as_str();
-            if let Ok(args) = serde_json::from_str(args_str) {
-                return Some((tool_name, args));
-            }
-        }
-
-        // Try the alternative format (what the model actually outputs)
-        let re2 = Regex::new(r"tool_name:\s*(\w+)\s*\ntool_input:\s*(\{.*?\})").ok()?;
-        if let Some(captures) = re2.captures(response) {
-            let tool_name = captures.get(1)?.as_str().to_string();
-            let args_str = captures.get(2)?.as_str();
-            if let Ok(args) = serde_json::from_str(args_str) {
-                return Some((tool_name, args));
-            }
-        }
-
-        None
-    }
-
     /// Check if a tool is allowed by the agent profile and policy engine
     fn is_tool_allowed(&self, tool_name: &str) -> bool {
         // First check profile-level permissions (backward compatibility)
@@ -2282,29 +2247,6 @@ mod tests {
         let tail: Vec<_> = recalled[2..].iter().map(|m| m.content.as_str()).collect();
         assert!(tail.contains(&"Alpha question"));
         assert!(tail.contains(&"Alpha answer"));
-    }
-
-    #[tokio::test]
-    async fn test_agent_tool_call_parsing() {
-        let (agent, _dir) = create_test_agent("tool-parse-test");
-
-        // Valid tool call
-        let response = "TOOL_CALL: echo\nARGS: {\"message\": \"hello\"}";
-        let parsed = agent.parse_tool_call(response);
-        assert!(parsed.is_some());
-        let (name, args) = parsed.unwrap();
-        assert_eq!(name, "echo");
-        assert_eq!(args["message"], "hello");
-
-        // No tool call
-        let response = "Just a regular response";
-        let parsed = agent.parse_tool_call(response);
-        assert!(parsed.is_none());
-
-        // Malformed tool call
-        let response = "TOOL_CALL: echo\nARGS: invalid json";
-        let parsed = agent.parse_tool_call(response);
-        assert!(parsed.is_none());
     }
 
     #[tokio::test]

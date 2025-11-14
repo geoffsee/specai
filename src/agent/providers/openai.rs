@@ -1,9 +1,11 @@
 //! OpenAI Model Provider
 //!
 //! Integration with OpenAI's API using the async-openai crate.
+//! Supports native function calling via the tools parameter.
 
 use crate::agent::model::{
-    GenerationConfig, ModelProvider, ModelResponse, ProviderKind, ProviderMetadata, TokenUsage,
+    GenerationConfig, ModelProvider, ModelResponse, ProviderKind, ProviderMetadata, ToolCall,
+    TokenUsage,
 };
 use anyhow::{Result, anyhow};
 use async_openai::{
@@ -11,7 +13,7 @@ use async_openai::{
     config::OpenAIConfig,
     types::{
         ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
-        ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
+        ChatCompletionRequestUserMessageArgs, ChatCompletionTool, CreateChatCompletionRequestArgs,
     },
 };
 use async_stream::stream;
@@ -20,6 +22,7 @@ use futures::Stream;
 use std::pin::Pin;
 
 /// OpenAI provider that wraps the async-openai crate
+/// Supports both regular text generation and native function calling via tools.
 #[derive(Debug, Clone)]
 pub struct OpenAIProvider {
     /// The async-openai client
@@ -28,6 +31,8 @@ pub struct OpenAIProvider {
     model: String,
     /// Optional system message for all requests
     system_message: Option<String>,
+    /// Optional tools available for function calling
+    tools: Option<Vec<ChatCompletionTool>>,
 }
 
 impl OpenAIProvider {
@@ -40,6 +45,7 @@ impl OpenAIProvider {
             client: Client::new(),
             model: "gpt-4.1-mini".to_string(),
             system_message: None,
+            tools: None,
         }
     }
 
@@ -50,6 +56,7 @@ impl OpenAIProvider {
             client: Client::with_config(config),
             model: "gpt-4.1-mini".to_string(),
             system_message: None,
+            tools: None,
         }
     }
 
@@ -59,6 +66,7 @@ impl OpenAIProvider {
             client: Client::with_config(config),
             model: "gpt-4.1-mini".to_string(),
             system_message: None,
+            tools: None,
         }
     }
 
@@ -71,6 +79,12 @@ impl OpenAIProvider {
     /// Set a system message to be included in all requests
     pub fn with_system_message(mut self, message: impl Into<String>) -> Self {
         self.system_message = Some(message.into());
+        self
+    }
+
+    /// Set tools available for function calling
+    pub fn with_tools(mut self, tools: Vec<ChatCompletionTool>) -> Self {
+        self.tools = if tools.is_empty() { None } else { Some(tools) };
         self
     }
 
@@ -132,6 +146,11 @@ impl ModelProvider for OpenAIProvider {
             request_builder.stop(stop.clone());
         }
 
+        // Add tools to the request if available (native function calling)
+        if let Some(ref tools) = self.tools {
+            request_builder.tools(tools.clone());
+        }
+
         let request = request_builder
             .build()
             .map_err(|e| anyhow!("Failed to build request: {}", e))?;
@@ -154,7 +173,27 @@ impl ModelProvider for OpenAIProvider {
             .message
             .content
             .clone()
-            .ok_or_else(|| anyhow!("No content in response"))?;
+            .unwrap_or_default();
+
+        // Parse tool calls if present
+        let tool_calls = choice
+            .message
+            .tool_calls
+            .as_ref()
+            .map(|calls| {
+                calls
+                    .iter()
+                    .filter_map(|call| {
+                        let arguments = serde_json::from_str(&call.function.arguments).ok()?;
+                        Some(ToolCall {
+                            id: call.id.clone(),
+                            function_name: call.function.name.clone(),
+                            arguments,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|calls| !calls.is_empty());
 
         let usage = response.usage.map(|u| TokenUsage {
             prompt_tokens: u.prompt_tokens,
@@ -167,6 +206,7 @@ impl ModelProvider for OpenAIProvider {
             model: response.model,
             usage,
             finish_reason: choice.finish_reason.as_ref().map(|r| format!("{:?}", r)),
+            tool_calls,
         })
     }
 

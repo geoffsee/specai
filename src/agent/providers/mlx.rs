@@ -176,6 +176,7 @@ impl ModelProvider for MLXProvider {
             model: response.model,
             usage,
             finish_reason: choice.finish_reason.as_ref().map(|r| format!("{:?}", r)),
+            tool_calls: None,
         })
     }
 

@@ -8,7 +8,7 @@ use crate::agent::providers::MLXProvider;
 use crate::agent::providers::MockProvider;
 #[cfg(feature = "openai")]
 use crate::agent::providers::OpenAIProvider;
-use crate::config::ModelConfig;
+use crate::config::{ModelConfig};
 use anyhow::{Context, Result, anyhow};
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ pub fn create_provider(config: &ModelConfig) -> Result<Arc<dyn ModelProvider>> {
     match provider_kind {
         ProviderKind::Mock => {
             // Create mock provider with optional custom responses
-            let provider = if let Some(ref model_name) = config.model_name {
+            let provider = if let Some(model_name) = &config.model_name {
                 MockProvider::default().with_model_name(model_name.clone())
             } else {
                 MockProvider::default()
@@ -31,7 +31,7 @@ pub fn create_provider(config: &ModelConfig) -> Result<Arc<dyn ModelProvider>> {
         #[cfg(feature = "openai")]
         ProviderKind::OpenAI => {
             // Get API key from config
-            let api_key = if let Some(ref source) = config.api_key_source {
+            let api_key = if let Some(source) = &config.api_key_source {
                 resolve_api_key(source)?
             } else {
                 // Default to OPENAI_API_KEY environment variable
@@ -42,7 +42,7 @@ pub fn create_provider(config: &ModelConfig) -> Result<Arc<dyn ModelProvider>> {
             let mut provider = OpenAIProvider::with_api_key(api_key);
 
             // Set model if specified in config
-            if let Some(ref model_name) = config.model_name {
+            if let Some(model_name) = &config.model_name {
                 provider = provider.with_model(model_name.clone());
             }
 

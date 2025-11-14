@@ -13,6 +13,9 @@ use self::builtin::{
 };
 use crate::persistence::Persistence;
 
+#[cfg(feature = "openai")]
+use async_openai::types::ChatCompletionTool;
+
 /// Result of tool execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
@@ -140,6 +143,24 @@ impl ToolRegistry {
     /// Check if the registry is empty
     pub fn is_empty(&self) -> bool {
         self.tools.is_empty()
+    }
+
+    /// Convert all tools in the registry to OpenAI ChatCompletionTool format
+    /// Only available when the "openai" feature is enabled
+    #[cfg(feature = "openai")]
+    pub fn to_openai_tools(&self) -> Vec<ChatCompletionTool> {
+        use crate::agent::function_calling::tool_to_openai_function;
+
+        self.tools
+            .values()
+            .map(|tool| {
+                tool_to_openai_function(
+                    tool.name(),
+                    tool.description(),
+                    &tool.parameters(),
+                )
+            })
+            .collect()
     }
 }
 

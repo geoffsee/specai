@@ -39,6 +39,17 @@ impl Default for GenerationConfig {
     }
 }
 
+/// Tool call from a model response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCall {
+    /// Unique identifier for this tool call
+    pub id: String,
+    /// Name of the function/tool to call
+    pub function_name: String,
+    /// Arguments as JSON
+    pub arguments: serde_json::Value,
+}
+
 /// Response from a model generation request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelResponse {
@@ -50,6 +61,9 @@ pub struct ModelResponse {
     pub usage: Option<TokenUsage>,
     /// Finish reason
     pub finish_reason: Option<String>,
+    /// Tool calls from the model (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 /// Token usage statistics
