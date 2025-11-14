@@ -10,14 +10,19 @@ use crate::policy::{PolicyDecision, PolicyEngine};
 use crate::tools::{ToolRegistry, ToolResult};
 use crate::types::{EdgeType, Message, MessageRole, NodeType, TraversalDirection};
 use anyhow::{Context, Result};
-use std::path::Path;
 use chrono::Utc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
+
+const DEFAULT_MAIN_TEMPERATURE: f32 = 0.7;
+const DEFAULT_TOP_P: f32 = 0.9;
+const DEFAULT_FAST_TEMPERATURE: f32 = 0.3;
+const DEFAULT_ESCALATION_THRESHOLD: f32 = 0.6;
 
 /// Output from an agent execution step
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +41,8 @@ pub struct AgentOutput {
     pub recall_stats: Option<MemoryRecallStats>,
     /// Unique identifier for correlating this run with logs/telemetry
     pub run_id: String,
+    /// Optional recommendation produced by graph steering
+    pub next_action: Option<String>,
 }
 
 /// A single tool invocation, including arguments and outcome metadata
@@ -267,9 +274,39 @@ impl AgentCore {
             .map(|goal| goal.requires_tool && goal.satisfied && auto_response.is_some())
             .unwrap_or(false);
 
+        // Fast-model routing (when enabled) happens only if we still need a model response
+        let mut fast_model_final: Option<(String, f32)> = None;
+        if !skip_model {
+            if let Some(task_type) = self.detect_task_type(input) {
+                let complexity = self.estimate_task_complexity(input);
+                if self.should_use_fast_model(&task_type, complexity) {
+                    match self.fast_reasoning(&task_type, input).await {
+                        Ok((fast_text, confidence)) => {
+                            if confidence >= self.escalation_threshold() {
+                                fast_model_final = Some((fast_text, confidence));
+                            } else {
+                                prompt.push_str(&format!(
+                                    "\n\nFAST_MODEL_HINT (task={} confidence={:.0}%):\n{}\n\nRefine this hint and produce a complete answer.",
+                                    task_type,
+                                    (confidence * 100.0).round(),
+                                    fast_text
+                                ));
+                            }
+                        }
+                        Err(err) => {
+                            warn!("Fast reasoning failed for task {}: {}", task_type, err);
+                        }
+                    }
+                }
+            }
+        }
+
         if skip_model {
             final_response = auto_response.unwrap_or_else(|| "Task completed.".to_string());
             finish_reason = Some("auto_tool".to_string());
+        } else if let Some((fast_text, confidence)) = fast_model_final {
+            final_response = fast_text;
+            finish_reason = Some(format!("fast_model ({:.0}%)", (confidence * 100.0).round()));
         } else {
             // Allow up to 5 iterations to handle tool calls
             for _iteration in 0..5 {
@@ -434,9 +471,21 @@ impl AgentCore {
             None
         };
 
-        // Log the recommendation if available
+        // Persist steering insight as a synthetic system message for future turns
         if let Some(ref recommendation) = next_action_recommendation {
             info!("Knowledge graph recommends next action: {}", recommendation);
+            let system_content = format!("Graph recommendation: {}", recommendation);
+            let system_message_id = self
+                .store_message(MessageRole::System, &system_content)
+                .await?;
+
+            self.conversation_history.push(Message {
+                id: system_message_id,
+                session_id: self.session_id.clone(),
+                role: MessageRole::System,
+                content: system_content,
+                created_at: Utc::now(),
+            });
         }
 
         Ok(AgentOutput {
@@ -447,16 +496,39 @@ impl AgentCore {
             finish_reason,
             recall_stats,
             run_id,
+            next_action: next_action_recommendation,
         })
     }
 
     /// Build generation configuration from profile
     fn build_generation_config(&self) -> GenerationConfig {
+        let temperature = match self.profile.temperature {
+            Some(temp) if temp.is_finite() => Some(temp.clamp(0.0, 2.0)),
+            Some(_) => {
+                warn!(
+                    "Ignoring invalid temperature for agent {:?}, falling back to {}",
+                    self.agent_name, DEFAULT_MAIN_TEMPERATURE
+                );
+                Some(DEFAULT_MAIN_TEMPERATURE)
+            }
+            None => None,
+        };
+
+        let top_p = if self.profile.top_p.is_finite() {
+            Some(self.profile.top_p.clamp(0.0, 1.0))
+        } else {
+            warn!(
+                "Invalid top_p detected for agent {:?}, falling back to {}",
+                self.agent_name, DEFAULT_TOP_P
+            );
+            Some(DEFAULT_TOP_P)
+        };
+
         GenerationConfig {
-            temperature: self.profile.temperature,
+            temperature,
             max_tokens: self.profile.max_context_tokens.map(|t| t as u32),
             stop_sequences: None,
-            top_p: Some(self.profile.top_p),
+            top_p,
             frequency_penalty: None,
             presence_penalty: None,
         }
@@ -621,18 +693,33 @@ impl AgentCore {
                             }
                         }
 
-                        // Combine semantic and graph-expanded context
-                        context.extend(semantic_context);
-                        context.extend(graph_expanded);
+                        // Combine semantic and graph-expanded context with weighted limits
+                        let total_slots = self.profile.memory_k.max(1);
+                        let mut graph_limit =
+                            ((total_slots as f32) * self.profile.graph_weight).round() as usize;
+                        graph_limit = graph_limit.min(total_slots);
+                        if graph_limit == 0 && !graph_expanded.is_empty() {
+                            graph_limit = 1;
+                        }
 
-                        // Apply graph weight to balance semantic vs graph relevance
-                        let _total_messages = context.len();
-                        let _semantic_weight = 1.0 - self.profile.graph_weight;
-                        let _graph_weight = self.profile.graph_weight;
+                        let mut semantic_limit = total_slots.saturating_sub(graph_limit);
+                        if semantic_limit == 0 && !semantic_context.is_empty() {
+                            semantic_limit = 1;
+                            graph_limit = graph_limit.saturating_sub(1);
+                        }
 
-                        // TODO: Implement graph-semantic hybrid ranking
-                        // Re-rank based on combined score (simplified for now)
-                        // In production, this would use a more sophisticated ranking algorithm
+                        let mut limited_semantic = semantic_context;
+                        if limited_semantic.len() > semantic_limit && semantic_limit > 0 {
+                            limited_semantic.truncate(semantic_limit);
+                        }
+
+                        let mut limited_graph = graph_expanded;
+                        if limited_graph.len() > graph_limit && graph_limit > 0 {
+                            limited_graph.truncate(graph_limit);
+                        }
+
+                        context.extend(limited_semantic);
+                        context.extend(limited_graph);
                     } else {
                         context.extend(semantic_context);
                     }
@@ -723,7 +810,10 @@ impl AgentCore {
             prompt.push_str("ARGS: {\"param\": \"value\"}\n\n");
 
             // Add specific parameter hints for file_write tool
-            if available_tools.iter().any(|t| t.to_string() == "file_write" && self.is_tool_allowed(t)) {
+            if available_tools
+                .iter()
+                .any(|t| t.to_string() == "file_write" && self.is_tool_allowed(t))
+            {
                 prompt.push_str("For file_write, use: ARGS: {\"path\": \"filename\", \"content\": \"file content\"}\n");
                 prompt.push_str("Example: TOOL_CALL: file_write\nARGS: {\"path\": \"example.py\", \"content\": \"print('hello')\"}\n\n");
             }
@@ -1041,6 +1131,61 @@ impl AgentCore {
         mentions_project && asks_about_project
     }
 
+    fn escalation_threshold(&self) -> f32 {
+        if self.profile.escalation_threshold.is_finite() {
+            self.profile.escalation_threshold.clamp(0.0, 1.0)
+        } else {
+            warn!(
+                "Invalid escalation_threshold for agent {:?}, defaulting to {}",
+                self.agent_name, DEFAULT_ESCALATION_THRESHOLD
+            );
+            DEFAULT_ESCALATION_THRESHOLD
+        }
+    }
+
+    fn detect_task_type(&self, input: &str) -> Option<String> {
+        if !self.profile.fast_reasoning || self.fast_provider.is_none() {
+            return None;
+        }
+
+        let text = input.to_lowercase();
+
+        let candidates: [(&str, &[&str]); 6] = [
+            ("entity_extraction", &["entity", "extract", "named"]),
+            ("decision_routing", &["classify", "categorize", "route"]),
+            (
+                "tool_selection",
+                &["which tool", "use which tool", "tool should"],
+            ),
+            ("confidence_scoring", &["confidence", "certainty"]),
+            ("summarization", &["summarize", "summary"]),
+            ("graph_analysis", &["graph", "connection", "relationships"]),
+        ];
+
+        for (task, keywords) in candidates {
+            if keywords.iter().any(|kw| text.contains(kw)) {
+                if self.profile.fast_model_tasks.iter().any(|t| t == task) {
+                    return Some(task.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    fn estimate_task_complexity(&self, input: &str) -> f32 {
+        let words = input.split_whitespace().count() as f32;
+        let clauses =
+            input.matches(" and ").count() as f32 + input.matches(" then ").count() as f32;
+        let newlines = input.matches('\n').count() as f32;
+
+        let length_factor = (words / 120.0).min(1.0);
+        let clause_factor = (clauses / 4.0).min(1.0);
+        let structure_factor = (newlines / 5.0).min(1.0);
+
+        (0.6 * length_factor + 0.3 * clause_factor + 0.1 * structure_factor).clamp(0.0, 1.0)
+    }
+
     fn infer_goal_tool_action(goal_text: &str) -> Option<(String, Value)> {
         let text = goal_text.to_lowercase();
 
@@ -1120,6 +1265,38 @@ impl AgentCore {
         None
     }
 
+    fn parse_confidence(text: &str) -> Option<f32> {
+        for line in text.lines() {
+            let lower = line.to_lowercase();
+            if lower.contains("confidence") {
+                let token = lower
+                    .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+                    .find(|chunk| !chunk.is_empty())?;
+                if let Ok(value) = token.parse::<f32>() {
+                    if (0.0..=1.0).contains(&value) {
+                        return Some(value);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn strip_fast_answer(text: &str) -> String {
+        let mut answer = String::new();
+        for line in text.lines() {
+            if line.to_lowercase().starts_with("answer:") {
+                answer.push_str(line.splitn(2, ':').nth(1).unwrap_or("").trim());
+                break;
+            }
+        }
+        if answer.is_empty() {
+            text.trim().to_string()
+        } else {
+            answer
+        }
+    }
+
     fn format_auto_tool_response(tool_name: &str, output: Option<&str>) -> String {
         let sanitized = output.unwrap_or("").trim();
         if sanitized.is_empty() {
@@ -1128,14 +1305,8 @@ impl AgentCore {
 
         if tool_name == "file_read" {
             if let Ok(value) = serde_json::from_str::<Value>(sanitized) {
-                let path = value
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("file");
-                let content = value
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let path = value.get("path").and_then(|v| v.as_str()).unwrap_or("file");
+                let content = value.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
                 // Truncate very large files for display
                 let max_chars = 4000;
@@ -1153,10 +1324,7 @@ impl AgentCore {
 
         if tool_name == "search" {
             if let Ok(value) = serde_json::from_str::<Value>(sanitized) {
-                let query = value
-                    .get("query")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let query = value.get("query").and_then(|v| v.as_str()).unwrap_or("");
 
                 if let Some(results) = value.get("results").and_then(|v| v.as_array()) {
                     if results.is_empty() {
@@ -1179,10 +1347,7 @@ impl AgentCore {
                             .get("path")
                             .and_then(|v| v.as_str())
                             .unwrap_or("<unknown>");
-                        let line = entry
-                            .get("line")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0);
+                        let line = entry.get("line").and_then(|v| v.as_u64()).unwrap_or(0);
                         let snippet = entry
                             .get("snippet")
                             .and_then(|v| v.as_str())
@@ -1287,29 +1452,38 @@ impl AgentCore {
     }
 
     /// Use fast model for preliminary reasoning tasks
-    #[allow(dead_code)]
-    async fn _fast_reasoning(&self, task: &str, input: &str) -> Result<(String, f32)> {
+    async fn fast_reasoning(&self, task: &str, input: &str) -> Result<(String, f32)> {
         if let Some(ref fast_provider) = self.fast_provider {
             let prompt = format!(
-                "Task: {}\nInput: {}\n\nProvide a concise response and confidence score (0-1):",
+                "You are a fast specialist model that assists a more capable agent.\nTask: {}\nInput: {}\n\nRespond with two lines:\nAnswer: <concise result>\nConfidence: <0-1 decimal>",
                 task, input
             );
 
+            let fast_temperature = if self.profile.fast_model_temperature.is_finite() {
+                self.profile.fast_model_temperature.clamp(0.0, 2.0)
+            } else {
+                warn!(
+                    "Invalid fast_model_temperature for agent {:?}, using {}",
+                    self.agent_name, DEFAULT_FAST_TEMPERATURE
+                );
+                DEFAULT_FAST_TEMPERATURE
+            };
+
             let config = GenerationConfig {
-                temperature: Some(self.profile.fast_model_temperature),
+                temperature: Some(fast_temperature),
                 max_tokens: Some(256), // Keep responses short for speed
                 stop_sequences: None,
-                top_p: Some(0.9),
+                top_p: Some(DEFAULT_TOP_P),
                 frequency_penalty: None,
                 presence_penalty: None,
             };
 
             let response = fast_provider.generate(&prompt, &config).await?;
 
-            // Parse confidence from response (simplified)
-            let confidence = 0.7; // In production, extract from response
+            let confidence = Self::parse_confidence(&response.content).unwrap_or(0.7);
+            let cleaned = Self::strip_fast_answer(&response.content);
 
-            Ok((response.content, confidence))
+            Ok((cleaned, confidence))
         } else {
             // No fast model configured
             Ok((String::new(), 0.0))
@@ -1317,8 +1491,7 @@ impl AgentCore {
     }
 
     /// Decide whether to use fast or main model based on task complexity
-    #[allow(dead_code)]
-    async fn _route_to_model(&self, task_type: &str, complexity_score: f32) -> bool {
+    fn should_use_fast_model(&self, task_type: &str, complexity_score: f32) -> bool {
         // Check if fast reasoning is enabled
         if !self.profile.fast_reasoning || self.fast_provider.is_none() {
             return false; // Use main model
@@ -1334,10 +1507,11 @@ impl AgentCore {
         }
 
         // Check complexity threshold
-        if complexity_score > self.profile.escalation_threshold {
+        let threshold = self.escalation_threshold();
+        if complexity_score > threshold {
             info!(
                 "Task complexity {} exceeds threshold {}, using main model",
-                complexity_score, self.profile.escalation_threshold
+                complexity_score, threshold
             );
             return false; // Use main model
         }
@@ -1442,7 +1616,7 @@ impl AgentCore {
         }
 
         // Then check policy engine
-        let agent_name = "agent"; // Could be enhanced to use profile name
+        let agent_name = self.agent_name.as_deref().unwrap_or("agent");
         let decision = self.policy_engine.check(agent_name, "tool_call", tool_name);
         info!(
             "Policy check for tool '{}': decision={:?}",
@@ -1549,11 +1723,9 @@ impl AgentCore {
         )?;
 
         // Analyze goals in the graph
-        let goal_nodes = self.persistence.list_graph_nodes(
-            &self.session_id,
-            Some(NodeType::Goal),
-            Some(10),
-        )?;
+        let goal_nodes =
+            self.persistence
+                .list_graph_nodes(&self.session_id, Some(NodeType::Goal), Some(10))?;
 
         let mut pending_goals = Vec::new();
         let mut completed_goals = Vec::new();
@@ -1588,9 +1760,7 @@ impl AgentCore {
 
         for tool_node in &tool_nodes {
             if let Some(success) = tool_node.properties["success"].as_bool() {
-                let tool_name = tool_node.properties["tool"]
-                    .as_str()
-                    .unwrap_or("unknown");
+                let tool_name = tool_node.properties["tool"].as_str().unwrap_or("unknown");
                 if success {
                     recent_tool_successes.push(tool_name.to_string());
                 } else {
@@ -1686,10 +1856,7 @@ impl AgentCore {
         // Check for pending goals that need attention
         if !pending_goals.is_empty() {
             let goals_str = pending_goals.join(", ");
-            recommendations.push(format!(
-                "Continue working on pending goals: {}",
-                goals_str
-            ));
+            recommendations.push(format!("Continue working on pending goals: {}", goals_str));
         }
 
         // Check for tool failures that might need retry or alternative approach
@@ -1715,24 +1882,26 @@ impl AgentCore {
 
         // Check if recent tools suggest a workflow pattern
         if tool_invocations.len() > 1 {
-            let tool_sequence: Vec<_> = tool_invocations
-                .iter()
-                .map(|t| t.name.as_str())
-                .collect();
+            let tool_sequence: Vec<_> = tool_invocations.iter().map(|t| t.name.as_str()).collect();
 
             // Common patterns
             if tool_sequence.contains(&"file_read") && !tool_sequence.contains(&"file_write") {
-                recommendations.push("Consider modifying the read files if changes are needed".to_string());
+                recommendations
+                    .push("Consider modifying the read files if changes are needed".to_string());
             }
 
-            if tool_sequence.contains(&"search") && tool_invocations.last().map_or(false, |t| t.success) {
-                recommendations.push("Examine the search results for relevant information".to_string());
+            if tool_sequence.contains(&"search")
+                && tool_invocations.last().map_or(false, |t| t.success)
+            {
+                recommendations
+                    .push("Examine the search results for relevant information".to_string());
             }
         }
 
         // Analyze key concepts for domain-specific recommendations
         if key_concepts.contains("Knowledge Graph") || key_concepts.contains("Graph Node") {
-            recommendations.push("Consider visualizing or querying the graph structure".to_string());
+            recommendations
+                .push("Consider visualizing or querying the graph structure".to_string());
         }
 
         if key_concepts.contains("Database") || key_concepts.contains("Query Processing") {
@@ -1752,7 +1921,10 @@ impl AgentCore {
         if recommendations.is_empty() {
             // No specific recommendation - check if conversation seems complete
             if completed_goals.len() > pending_goals.len() && recent_tool_failures.is_empty() {
-                Some("Current objectives appear satisfied. Ready for new tasks or refinements.".to_string())
+                Some(
+                    "Current objectives appear satisfied. Ready for new tasks or refinements."
+                        .to_string(),
+                )
             } else {
                 None
             }
@@ -1847,6 +2019,63 @@ mod tests {
         )
     }
 
+    fn create_fast_reasoning_agent(
+        session_id: &str,
+        fast_output: &str,
+    ) -> (AgentCore, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("fast.duckdb");
+        let persistence = Persistence::new(&db_path).unwrap();
+
+        let profile = AgentProfile {
+            prompt: Some("You are a helpful assistant.".to_string()),
+            style: None,
+            temperature: Some(0.7),
+            model_provider: None,
+            model_name: None,
+            allowed_tools: None,
+            denied_tools: None,
+            memory_k: 5,
+            top_p: 0.9,
+            max_context_tokens: Some(2048),
+            enable_graph: false,
+            graph_memory: false,
+            auto_graph: false,
+            graph_steering: false,
+            graph_depth: 3,
+            graph_weight: 0.5,
+            graph_threshold: 0.7,
+            fast_reasoning: true,
+            fast_model_provider: Some("mock".to_string()),
+            fast_model_name: Some("mock-fast".to_string()),
+            fast_model_temperature: 0.3,
+            fast_model_tasks: vec!["entity_extraction".to_string()],
+            escalation_threshold: 0.5,
+        };
+
+        profile.validate().unwrap();
+
+        let provider = Arc::new(MockProvider::new("This is a test response."));
+        let fast_provider = Arc::new(MockProvider::new(fast_output.to_string()));
+        let tool_registry = Arc::new(crate::tools::ToolRegistry::new());
+        let policy_engine = Arc::new(PolicyEngine::new());
+
+        (
+            AgentCore::new(
+                profile,
+                provider,
+                None,
+                persistence,
+                session_id.to_string(),
+                Some(session_id.to_string()),
+                tool_registry,
+                policy_engine,
+            )
+            .with_fast_provider(fast_provider),
+            dir,
+        )
+    }
+
     #[derive(Clone)]
     struct KeywordEmbeddingsService;
 
@@ -1880,6 +2109,41 @@ mod tests {
         assert!(!output.response.is_empty());
         assert!(output.token_usage.is_some());
         assert_eq!(output.tool_invocations.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn fast_model_short_circuits_when_confident() {
+        let (mut agent, _dir) = create_fast_reasoning_agent(
+            "fast-confident",
+            "Answer: Entities detected.\nConfidence: 0.9",
+        );
+
+        let output = agent
+            .run_step("Extract the entities mentioned in this string.")
+            .await
+            .unwrap();
+
+        assert!(
+            output
+                .finish_reason
+                .unwrap_or_default()
+                .contains("fast_model")
+        );
+        assert!(output.response.contains("Entities detected"));
+    }
+
+    #[tokio::test]
+    async fn fast_model_only_hints_when_low_confidence() {
+        let (mut agent, _dir) =
+            create_fast_reasoning_agent("fast-hint", "Answer: Unsure.\nConfidence: 0.2");
+
+        let output = agent
+            .run_step("Extract the entities mentioned in this string.")
+            .await
+            .unwrap();
+
+        assert_eq!(output.finish_reason.as_deref(), Some("stop"));
+        assert_eq!(output.response, "This is a test response.");
     }
 
     #[tokio::test]
@@ -2208,9 +2472,14 @@ mod tests {
     #[test]
     fn test_infer_goal_tool_action_project_description() {
         let query = "Tell me about the project in this directory";
-        let inferred = AgentCore::infer_goal_tool_action(query).expect("Should infer a tool for project description");
+        let inferred = AgentCore::infer_goal_tool_action(query)
+            .expect("Should infer a tool for project description");
         let (tool, args) = inferred;
-        assert!(tool == "file_read" || tool == "search", "unexpected tool: {}", tool);
+        assert!(
+            tool == "file_read" || tool == "search",
+            "unexpected tool: {}",
+            tool
+        );
         if tool == "file_read" {
             // Should include a path and max_bytes
             assert!(args.get("path").is_some());

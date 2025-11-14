@@ -571,6 +571,7 @@ mod tests {
             finish_reason: None,
             recall_stats: None,
             run_id: "run-default".to_string(),
+            next_action: None,
         };
         let lines = CliState::format_reasoning_messages(&output);
         assert_eq!(
@@ -607,6 +608,7 @@ mod tests {
             finish_reason: Some("stop".to_string()),
             recall_stats: Some(stats),
             run_id: "run-details".to_string(),
+            next_action: None,
         };
         let lines = CliState::format_reasoning_messages(&output);
         assert!(lines[0].starts_with("Recall: semantic"));
@@ -629,6 +631,7 @@ mod tests {
             finish_reason: None,
             recall_stats: None,
             run_id: "run-tokens".to_string(),
+            next_action: None,
         };
         let lines = CliState::format_reasoning_messages(&output);
         assert_eq!(lines[2], "Tokens: P 4 C 6 T 10");

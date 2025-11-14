@@ -155,10 +155,17 @@ pub fn render_run_stats(output: &AgentOutput) -> Option<String> {
             let status_symbol = if inv.success { "✓" } else { "✗" };
 
             // Tool header
-            section.push_str(&format!("**{}. {} [{}]**\n\n", idx + 1, inv.name, status_symbol));
+            section.push_str(&format!(
+                "**{}. {} [{}]**\n\n",
+                idx + 1,
+                inv.name,
+                status_symbol
+            ));
 
             // Parse and format arguments nicely
-            if let Ok(args_map) = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(inv.arguments.clone()) {
+            if let Ok(args_map) = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
+                inv.arguments.clone(),
+            ) {
                 for (key, value) in args_map.iter() {
                     let formatted_value = match value {
                         serde_json::Value::String(s) => {
@@ -170,7 +177,7 @@ pub fn render_run_stats(output: &AgentOutput) -> Option<String> {
                         }
                         serde_json::Value::Number(n) => n.to_string(),
                         serde_json::Value::Bool(b) => b.to_string(),
-                        _ => to_string(value).unwrap_or_else(|_| "...".to_string())
+                        _ => to_string(value).unwrap_or_else(|_| "...".to_string()),
                     };
                     section.push_str(&format!("  - **{}**: `{}`\n", key, formatted_value));
                 }
@@ -188,11 +195,13 @@ pub fn render_run_stats(output: &AgentOutput) -> Option<String> {
                             if let Some(stdout) = obj.get("stdout").and_then(|v| v.as_str()) {
                                 let lines: Vec<&str> = stdout.lines().collect();
                                 if !lines.is_empty() {
-                                    section.push_str(&format!("  - stdout: {} lines\n", lines.len()));
+                                    section
+                                        .push_str(&format!("  - stdout: {} lines\n", lines.len()));
                                     // Show first few lines if not too many
                                     if lines.len() <= 5 {
                                         for line in lines.iter().take(5) {
-                                            let trimmed = if line.len() > 60 { &line[..60] } else { line };
+                                            let trimmed =
+                                                if line.len() > 60 { &line[..60] } else { line };
                                             section.push_str(&format!("    `{}`\n", trimmed));
                                         }
                                     }
@@ -229,6 +238,12 @@ pub fn render_run_stats(output: &AgentOutput) -> Option<String> {
 
             section.push_str("\n");
         }
+        sections.push(section);
+    }
+
+    if let Some(next_action) = &output.next_action {
+        let mut section = String::from("## Graph Steering\n");
+        section.push_str(&format!("- Recommendation: {}\n", next_action));
         sections.push(section);
     }
 
