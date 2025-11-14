@@ -608,10 +608,11 @@ impl AgentCore {
                         context.extend(graph_expanded);
 
                         // Apply graph weight to balance semantic vs graph relevance
-                        let total_messages = context.len();
-                        let semantic_weight = 1.0 - self.profile.graph_weight;
-                        let graph_weight = self.profile.graph_weight;
+                        let _total_messages = context.len();
+                        let _semantic_weight = 1.0 - self.profile.graph_weight;
+                        let _graph_weight = self.profile.graph_weight;
 
+                        // TODO: Implement graph-semantic hybrid ranking
                         // Re-rank based on combined score (simplified for now)
                         // In production, this would use a more sophisticated ranking algorithm
                     } else {
@@ -714,7 +715,9 @@ impl AgentCore {
         }
 
         // Add current user input
-        prompt.push_str(&format!("user: {}\nassistant:", input));
+        prompt.push_str(&format!("user: {}\n", input));
+
+        prompt.push_str("assistant:");
 
         Ok(prompt)
     }
@@ -986,6 +989,8 @@ impl AgentCore {
 
     fn infer_goal_tool_action(goal_text: &str) -> Option<(String, Value)> {
         let text = goal_text.to_lowercase();
+
+        // Handle directory listing requests
         if text.contains("list")
             && (text.contains("directory") || text.contains("files") || text.contains("folder"))
         {
@@ -1006,6 +1011,9 @@ impl AgentCore {
             ));
         }
 
+        // For code generation requests, return None to let the agent handle it
+        // The agent should use its normal reasoning to generate appropriate code
+        // based on the user's request, not use hardcoded snippets
         None
     }
 
@@ -1105,7 +1113,8 @@ impl AgentCore {
     }
 
     /// Use fast model for preliminary reasoning tasks
-    async fn fast_reasoning(&self, task: &str, input: &str) -> Result<(String, f32)> {
+    #[allow(dead_code)]
+    async fn _fast_reasoning(&self, task: &str, input: &str) -> Result<(String, f32)> {
         if let Some(ref fast_provider) = self.fast_provider {
             let prompt = format!(
                 "Task: {}\nInput: {}\n\nProvide a concise response and confidence score (0-1):",
@@ -1134,7 +1143,8 @@ impl AgentCore {
     }
 
     /// Decide whether to use fast or main model based on task complexity
-    async fn route_to_model(&self, task_type: &str, complexity_score: f32) -> bool {
+    #[allow(dead_code)]
+    async fn _route_to_model(&self, task_type: &str, complexity_score: f32) -> bool {
         // Check if fast reasoning is enabled
         if !self.profile.fast_reasoning || self.fast_provider.is_none() {
             return false; // Use main model

@@ -27,12 +27,33 @@ level = "info"
 # ========== MULTI-MODEL AGENT CONFIGURATION ==========
 [agents.multi_model_agent]
 # Basic agent configuration
-prompt = """You are an intelligent assistant with hierarchical reasoning capabilities.
-You can delegate simple tasks to a fast local model (Llama-3.2-3B) for quick responses,
-and use the main model for complex reasoning that requires deeper understanding."""
+prompt = """You are a practical coding assistant that helps users build software.
+When users request to build something, immediately take action by:
+1. Creating necessary files using the file_write tool
+2. Writing actual code, not descriptions or plans
+3. Using bash to run and test code when appropriate
+4. Iterating based on results
+
+You have access to a fast model for quick analysis, but code generation
+should always result in actual file creation, not planning documents.
+When a user confirms a technology choice (e.g., "Let's do Python with Pygame"),
+immediately generate starter code using file_write."""
 temperature = 0.7
 memory_k = 20
 top_p = 0.9
+
+# Explicitly allow tools for code generation
+allowed_tools = [
+    "file_write",
+    "file_read",
+    "bash",
+    "shell",
+    "search",
+    "echo",
+    "web_search",
+    "graph",
+    "math"
+]
 
 # ========== HIERARCHICAL MULTI-MODEL REASONING ==========
 # Enable fast reasoning with Llama-3.2-3B
@@ -53,14 +74,12 @@ fast_model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
 fast_model_temperature = 0.3
 
 # Tasks delegated to the fast model
+# Removed: decision_routing, tool_selection, classification (these prevent action-taking)
 fast_model_tasks = [
     "entity_extraction",      # Extract names, dates, URLs, emails
     "graph_analysis",         # Analyze graph relationships
-    "decision_routing",       # Determine task complexity
-    "tool_selection",        # Choose appropriate tools
     "confidence_scoring",    # Assess response confidence
     "summarization",         # Quick summaries of short texts
-    "classification",        # Categorize inputs
     "syntax_checking",       # Check code syntax
 ]
 style = "professional"
