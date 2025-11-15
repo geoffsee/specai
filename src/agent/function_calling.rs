@@ -3,10 +3,8 @@
 //! This module provides functionality to convert tool definitions into OpenAI's
 //! ChatCompletionTool format and parse function call responses from the SDK.
 
-use async_openai::types::{
-    ChatCompletionTool, ChatCompletionToolType, FunctionObject,
-};
-use serde_json::{json, Value};
+use async_openai::types::{ChatCompletionTool, ChatCompletionToolType, FunctionObject};
+use serde_json::{Value, json};
 
 /// Converts parameters to OpenAI function schema format
 fn parameters_to_openai_schema(params: &Value) -> Value {
@@ -94,17 +92,16 @@ mod tests {
         let tool = tool_to_openai_function("echo", "Echo a message", &params);
 
         assert_eq!(tool.function.name, "echo");
-        assert_eq!(tool.function.description, Some("Echo a message".to_string()));
+        assert_eq!(
+            tool.function.description,
+            Some("Echo a message".to_string())
+        );
         assert!(tool.function.parameters.is_some());
     }
 
     #[test]
     fn test_parse_tool_call_from_message() {
-        let result = parse_tool_call_from_message(
-            "call_123",
-            "echo",
-            r#"{"message": "hello"}"#,
-        );
+        let result = parse_tool_call_from_message("call_123", "echo", r#"{"message": "hello"}"#);
 
         assert!(result.is_some());
         let (name, args) = result.unwrap();

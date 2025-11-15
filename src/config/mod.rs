@@ -1,7 +1,7 @@
 pub mod agent;
 pub mod agent_config;
-pub mod registry;
 pub mod cache;
+pub mod registry;
 
 // Re-export common types for convenience
 pub use agent::AgentProfile;

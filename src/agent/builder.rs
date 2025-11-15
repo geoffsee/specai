@@ -5,14 +5,14 @@
 use crate::agent::core::AgentCore;
 use crate::agent::factory::{create_provider, resolve_api_key};
 use crate::agent::model::{ModelProvider, ProviderKind};
+#[cfg(feature = "openai")]
+use crate::agent::providers::openai::OpenAIProvider;
 use crate::config::{AgentProfile, AgentRegistry, AppConfig, ModelConfig};
 use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::PolicyEngine;
 use crate::tools::ToolRegistry;
 use anyhow::{Context, Result, anyhow};
-#[cfg(feature = "openai")]
-use crate::agent::providers::openai::OpenAIProvider;
 #[cfg(feature = "mlx")]
 use async_openai::config::OpenAIConfig;
 use std::sync::Arc;
@@ -148,8 +148,8 @@ impl AgentBuilder {
         let provider = if let Some(provider) = self.provider {
             provider
         } else if let Some(ref config) = self.config {
-            let mut base_provider = create_provider(&config.model)
-                .context("Failed to create provider from config")?;
+            let mut base_provider =
+                create_provider(&config.model).context("Failed to create provider from config")?;
 
             // Configure OpenAI provider with tools for native function calling
             #[cfg(feature = "openai")]
@@ -157,7 +157,10 @@ impl AgentBuilder {
                 if base_provider.kind() == ProviderKind::OpenAI {
                     let openai_tools = tool_registry.to_openai_tools();
                     if !openai_tools.is_empty() {
-                        info!("Configuring OpenAI provider with {} tools for native function calling", openai_tools.len());
+                        info!(
+                            "Configuring OpenAI provider with {} tools for native function calling",
+                            openai_tools.len()
+                        );
 
                         // Recreate OpenAI provider with tools
                         let api_key = if let Some(source) = &config.model.api_key_source {
@@ -397,6 +400,7 @@ mod tests {
             fast_model_temperature: 0.3,
             fast_model_tasks: vec![],
             escalation_threshold: 0.6,
+            show_reasoning: false,
         }
     }
 

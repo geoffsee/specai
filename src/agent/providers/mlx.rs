@@ -5,6 +5,7 @@
 
 use crate::agent::model::{
     GenerationConfig, ModelProvider, ModelResponse, ProviderKind, ProviderMetadata, TokenUsage,
+    parse_thinking_tokens,
 };
 use anyhow::{Result, anyhow};
 use async_openai::{
@@ -159,11 +160,14 @@ impl ModelProvider for MLXProvider {
             .first()
             .ok_or_else(|| anyhow!("No response choices returned"))?;
 
-        let content = choice
+        let raw_content = choice
             .message
             .content
             .clone()
             .ok_or_else(|| anyhow!("No content in response"))?;
+
+        // Parse thinking tokens if present
+        let (reasoning, content) = parse_thinking_tokens(&raw_content);
 
         let usage = response.usage.map(|u| TokenUsage {
             prompt_tokens: u.prompt_tokens,
@@ -177,6 +181,7 @@ impl ModelProvider for MLXProvider {
             usage,
             finish_reason: choice.finish_reason.as_ref().map(|r| format!("{:?}", r)),
             tool_calls: None,
+            reasoning,
         })
     }
 
@@ -226,15 +231,45 @@ impl ModelProvider for MLXProvider {
             .map_err(|e| anyhow!("MLX streaming API error: {}", e))?;
 
         // Convert the OpenAI-compatible stream to our stream format
+        // Buffer to track if we're in a <think> block
         let stream = stream! {
             use futures::StreamExt;
+
+            let mut buffer = String::new();
+            let mut in_think_block = false;
+            let mut think_ended = false;
 
             while let Some(result) = response_stream.next().await {
                 match result {
                     Ok(response) => {
                         if let Some(choice) = response.choices.first() {
                             if let Some(content) = &choice.delta.content {
-                                yield Ok(content.clone());
+                                buffer.push_str(content);
+
+                                // Check if we're entering a think block
+                                if buffer.contains("<think>") && !in_think_block {
+                                    in_think_block = true;
+                                }
+
+                                // Check if we're exiting a think block
+                                if buffer.contains("</think>") && in_think_block {
+                                    in_think_block = false;
+                                    think_ended = true;
+                                    // Clear buffer up to and including </think>
+                                    if let Some(idx) = buffer.find("</think>") {
+                                        buffer = buffer[idx + "</think>".len()..].to_string();
+                                    }
+                                }
+
+                                // Only yield content if we're not in a think block and think has ended
+                                // or if we never encountered think tags
+                                if !in_think_block && (think_ended || !buffer.contains("<think>")) {
+                                    let output = buffer.clone();
+                                    buffer.clear();
+                                    if !output.is_empty() {
+                                        yield Ok(output);
+                                    }
+                                }
                             }
                         }
                     }
@@ -243,6 +278,11 @@ impl ModelProvider for MLXProvider {
                         break;
                     }
                 }
+            }
+
+            // Yield any remaining buffered content
+            if !buffer.is_empty() && !in_think_block {
+                yield Ok(buffer);
             }
         };
 

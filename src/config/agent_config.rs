@@ -56,8 +56,7 @@ impl AppConfig {
     /// Load configuration from a specific file path
     pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        toml::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse config file: {}", e))
+        toml::from_str(&content).map_err(|e| anyhow::anyhow!("Failed to parse config file: {}", e))
     }
 
     /// Validate the configuration
@@ -89,12 +88,7 @@ impl AppConfig {
         // Validate log level
         match self.logging.level.as_str() {
             "trace" | "debug" | "info" | "warn" | "error" => {}
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "Invalid log level: {}",
-                    self.logging.level
-                ))
-            }
+            _ => return Err(anyhow::anyhow!("Invalid log level: {}", self.logging.level)),
         }
 
         // If a default agent is specified, it must exist in the agents map
@@ -114,9 +108,7 @@ impl AppConfig {
     pub fn apply_env_overrides(&mut self) {
         // Helper: prefer AGENT_* over SPEC_AI_* if both present
         fn first(a: &str, b: &str) -> Option<String> {
-            std::env::var(a)
-                .ok()
-                .or_else(|| std::env::var(b).ok())
+            std::env::var(a).ok().or_else(|| std::env::var(b).ok())
         }
 
         if let Some(provider) = first("AGENT_MODEL_PROVIDER", "SPEC_AI_PROVIDER") {

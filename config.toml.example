@@ -89,6 +89,10 @@ fast_model_tasks = [
 # Escalate to main model if confidence < 60%
 escalation_threshold = 0.6
 
+# Display reasoning summary to user (requires fast_reasoning = true)
+# Shows a concise summary of the model's thought process
+show_reasoning = false  # Default: false
+
 # ========== SPECIALIZED AGENTS ==========
 
 [agents.coder]

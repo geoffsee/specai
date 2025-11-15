@@ -408,7 +408,8 @@ impl CliState {
                 self.update_reasoning_messages(&output);
                 let mut formatted =
                     formatting::render_agent_response("assistant", &output.response);
-                if let Some(stats) = formatting::render_run_stats(&output) {
+                let show_reasoning = self.agent.profile().show_reasoning;
+                if let Some(stats) = formatting::render_run_stats(&output, show_reasoning) {
                     formatted.push('\n');
                     formatted.push_str(&stats);
                 }
@@ -467,8 +468,12 @@ impl CliState {
 
         let output = self.agent.run_spec(&spec).await?;
         self.update_reasoning_messages(&output);
-        intro.push_str(&formatting::render_agent_response("assistant", &output.response));
-        if let Some(stats) = formatting::render_run_stats(&output) {
+        intro.push_str(&formatting::render_agent_response(
+            "assistant",
+            &output.response,
+        ));
+        let show_reasoning = self.agent.profile().show_reasoning;
+        if let Some(stats) = formatting::render_run_stats(&output, show_reasoning) {
             intro.push('\n');
             intro.push_str(&stats);
         }
@@ -632,6 +637,8 @@ mod tests {
             recall_stats: None,
             run_id: "run-default".to_string(),
             next_action: None,
+            reasoning: None,
+            reasoning_summary: None,
         };
         let lines = CliState::format_reasoning_messages(&output);
         assert_eq!(
@@ -669,6 +676,8 @@ mod tests {
             recall_stats: Some(stats),
             run_id: "run-details".to_string(),
             next_action: None,
+            reasoning: None,
+            reasoning_summary: None,
         };
         let lines = CliState::format_reasoning_messages(&output);
         assert!(lines[0].starts_with("Recall: semantic"));
@@ -692,6 +701,8 @@ mod tests {
             recall_stats: None,
             run_id: "run-tokens".to_string(),
             next_action: None,
+            reasoning: None,
+            reasoning_summary: None,
         };
         let lines = CliState::format_reasoning_messages(&output);
         assert_eq!(lines[2], "Tokens: P 4 C 6 T 10");

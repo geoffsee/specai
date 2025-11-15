@@ -105,6 +105,10 @@ pub struct AgentProfile {
     /// Confidence threshold to escalate to main model
     #[serde(default = "AgentProfile::default_escalation_threshold")]
     pub escalation_threshold: f32,
+
+    /// Display reasoning summary to user (requires fast model for summarization)
+    #[serde(default)]
+    pub show_reasoning: bool,
 }
 
 impl AgentProfile {
@@ -277,6 +281,7 @@ impl Default for AgentProfile {
             fast_model_temperature: Self::default_fast_temperature(),
             fast_model_tasks: Self::default_fast_tasks(),
             escalation_threshold: Self::default_escalation_threshold(),
+            show_reasoning: false, // Disabled by default
         }
     }
 }

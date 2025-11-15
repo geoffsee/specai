@@ -43,6 +43,12 @@ pub struct AgentOutput {
     pub run_id: String,
     /// Optional recommendation produced by graph steering
     pub next_action: Option<String>,
+    /// Model's internal reasoning/thinking process (extracted from <think> tags)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    /// Human-readable summary of the reasoning (if reasoning was present)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_summary: Option<String>,
 }
 
 /// A single tool invocation, including arguments and outcome metadata
@@ -225,6 +231,8 @@ impl AgentCore {
         let mut token_usage = None;
         let mut finish_reason = None;
         let mut auto_response: Option<String> = None;
+        let mut reasoning: Option<String> = None;
+        let mut reasoning_summary: Option<String> = None;
 
         // Attempt to auto-satisfy simple goals before invoking the model
         if let Some(goal) = goal_context.as_mut() {
@@ -321,6 +329,12 @@ impl AgentCore {
                 token_usage = response.usage;
                 finish_reason = response.finish_reason.clone();
                 final_response = response.content.clone();
+                reasoning = response.reasoning.clone();
+
+                // Summarize reasoning if present
+                if let Some(ref reasoning_text) = reasoning {
+                    reasoning_summary = self.summarize_reasoning(reasoning_text).await;
+                }
 
                 // Check for SDK-native tool calls (function calling)
                 let sdk_tool_calls = response.tool_calls.clone().unwrap_or_default();
@@ -349,8 +363,11 @@ impl AgentCore {
                         // Execute tool
                         match self.execute_tool(&run_id, tool_name, tool_args).await {
                             Ok(result) => {
-                                let invocation =
-                                    ToolInvocation::from_result(tool_name, tool_args.clone(), &result);
+                                let invocation = ToolInvocation::from_result(
+                                    tool_name,
+                                    tool_args.clone(),
+                                    &result,
+                                );
                                 let tool_output = invocation.output.clone().unwrap_or_default();
                                 let was_success = invocation.success;
                                 let error_message = invocation
@@ -360,9 +377,9 @@ impl AgentCore {
                                 tool_invocations.push(invocation);
 
                                 if let Some(goal) = goal_context.as_mut() {
-                                    if let Err(err) = self
-                                        .record_goal_tool_result(goal, tool_name, tool_args, &result)
-                                    {
+                                    if let Err(err) = self.record_goal_tool_result(
+                                        goal, tool_name, tool_args, &result,
+                                    ) {
                                         warn!("Failed to record goal progress: {}", err);
                                     }
                                     if result.success && goal.requires_tool && !goal.satisfied {
@@ -388,7 +405,8 @@ impl AgentCore {
                                 }
                             }
                             Err(e) => {
-                                let error_msg = format!("Error executing tool '{}': {}", tool_name, e);
+                                let error_msg =
+                                    format!("Error executing tool '{}': {}", tool_name, e);
                                 warn!("{}", error_msg);
                                 prompt.push_str(&format!(
                                     "\n\nTOOL_ERROR: {}\n\nPlease continue without this tool.",
@@ -423,9 +441,13 @@ impl AgentCore {
             }
         }
 
-        // Step 5: Store assistant response
+        // Step 5: Store assistant response with reasoning if available
         let response_message_id = self
-            .store_message(MessageRole::Assistant, &final_response)
+            .store_message_with_reasoning(
+                MessageRole::Assistant,
+                &final_response,
+                reasoning.as_deref(),
+            )
             .await?;
 
         if let Some(goal) = goal_context.as_mut() {
@@ -503,6 +525,8 @@ impl AgentCore {
             recall_stats,
             run_id,
             next_action: next_action_recommendation,
+            reasoning,
+            reasoning_summary,
         })
     }
 
@@ -548,6 +572,47 @@ impl AgentCore {
             top_p,
             frequency_penalty: None,
             presence_penalty: None,
+        }
+    }
+
+    /// Summarize reasoning using the fast model
+    async fn summarize_reasoning(&self, reasoning: &str) -> Option<String> {
+        // Only summarize if we have a fast provider and reasoning is substantial
+        let fast_provider = self.fast_provider.as_ref()?;
+
+        if reasoning.len() < 50 {
+            // Too short to summarize, just return it as-is
+            return Some(reasoning.to_string());
+        }
+
+        let summary_prompt = format!(
+            "Summarize the following reasoning in 1-2 concise sentences that explain the thought process:\n\n{}\n\nSummary:",
+            reasoning
+        );
+
+        let config = GenerationConfig {
+            temperature: Some(0.3),
+            max_tokens: Some(100),
+            stop_sequences: None,
+            top_p: Some(0.9),
+            frequency_penalty: None,
+            presence_penalty: None,
+        };
+
+        match fast_provider.generate(&summary_prompt, &config).await {
+            Ok(response) => {
+                let summary = response.content.trim().to_string();
+                if !summary.is_empty() {
+                    debug!("Generated reasoning summary: {}", summary);
+                    Some(summary)
+                } else {
+                    None
+                }
+            }
+            Err(e) => {
+                warn!("Failed to summarize reasoning: {}", e);
+                None
+            }
         }
     }
 
@@ -843,6 +908,16 @@ impl AgentCore {
 
     /// Store a message in persistence
     async fn store_message(&self, role: MessageRole, content: &str) -> Result<i64> {
+        self.store_message_with_reasoning(role, content, None).await
+    }
+
+    /// Store a message in persistence with optional reasoning metadata
+    async fn store_message_with_reasoning(
+        &self,
+        role: MessageRole,
+        content: &str,
+        reasoning: Option<&str>,
+    ) -> Result<i64> {
         let message_id = self
             .persistence
             .insert_message(&self.session_id, role, content)
@@ -883,7 +958,7 @@ impl AgentCore {
 
         // If auto_graph is enabled, create graph nodes and edges
         if self.profile.enable_graph && self.profile.auto_graph {
-            self.build_graph_for_message(message_id, role, content, embedding_id)?;
+            self.build_graph_for_message(message_id, role, content, embedding_id, reasoning)?;
         }
 
         Ok(message_id)
@@ -896,27 +971,81 @@ impl AgentCore {
         role: MessageRole,
         content: &str,
         embedding_id: Option<i64>,
+        reasoning: Option<&str>,
     ) -> Result<()> {
         use serde_json::json;
 
         // Create a node for the message
+        let mut message_props = json!({
+            "message_id": message_id,
+            "role": role.as_str(),
+            "content_preview": preview_text(content),
+            "timestamp": Utc::now().to_rfc3339(),
+        });
+
+        // Add reasoning preview if available
+        if let Some(reasoning_text) = reasoning {
+            if !reasoning_text.is_empty() {
+                message_props["has_reasoning"] = json!(true);
+                message_props["reasoning_preview"] = json!(preview_text(reasoning_text));
+            }
+        }
+
         let message_node_id = self.persistence.insert_graph_node(
             &self.session_id,
             NodeType::Message,
             &format!("{:?}Message", role),
-            &json!({
-                "message_id": message_id,
-                "role": role.as_str(),
-                "content_preview": preview_text(content),
-                "timestamp": Utc::now().to_rfc3339(),
-            }),
+            &message_props,
             embedding_id,
         )?;
 
-        // Extract entities and concepts from the message (simplified for now)
-        // In production, this would use NER and entity extraction
-        let entities = self.extract_entities_from_text(content);
-        let concepts = self.extract_concepts_from_text(content);
+        // Extract entities and concepts from the message content
+        let mut entities = self.extract_entities_from_text(content);
+        let mut concepts = self.extract_concepts_from_text(content);
+
+        // Also extract entities and concepts from reasoning if available
+        // This provides richer context for the knowledge graph
+        if let Some(reasoning_text) = reasoning {
+            if !reasoning_text.is_empty() {
+                debug!(
+                    "Extracting entities/concepts from reasoning for message {}",
+                    message_id
+                );
+                let reasoning_entities = self.extract_entities_from_text(reasoning_text);
+                let reasoning_concepts = self.extract_concepts_from_text(reasoning_text);
+
+                // Merge reasoning entities with content entities (boosting confidence for duplicates)
+                for mut reasoning_entity in reasoning_entities {
+                    // Check if this entity was already extracted from content
+                    if let Some(existing) = entities.iter_mut().find(|e| {
+                        e.name.to_lowercase() == reasoning_entity.name.to_lowercase()
+                            && e.entity_type == reasoning_entity.entity_type
+                    }) {
+                        // Boost confidence if entity appears in both content and reasoning
+                        existing.confidence =
+                            (existing.confidence + reasoning_entity.confidence * 0.5).min(1.0);
+                    } else {
+                        // New entity from reasoning, add with slightly lower confidence
+                        reasoning_entity.confidence *= 0.8;
+                        entities.push(reasoning_entity);
+                    }
+                }
+
+                // Merge reasoning concepts with content concepts
+                for mut reasoning_concept in reasoning_concepts {
+                    if let Some(existing) = concepts
+                        .iter_mut()
+                        .find(|c| c.name.to_lowercase() == reasoning_concept.name.to_lowercase())
+                    {
+                        existing.relevance =
+                            (existing.relevance + reasoning_concept.relevance * 0.5).min(1.0);
+                    } else {
+                        reasoning_concept.relevance *= 0.8;
+                        concepts.push(reasoning_concept);
+                    }
+                }
+            }
+        }
 
         // Create nodes for entities
         for entity in entities {
@@ -1975,6 +2104,7 @@ mod tests {
             fast_model_temperature: 0.3,
             fast_model_tasks: vec![],
             escalation_threshold: 0.6,
+            show_reasoning: false,
         };
 
         let provider = Arc::new(MockProvider::new("This is a test response."));
@@ -2028,6 +2158,7 @@ mod tests {
             fast_model_temperature: 0.3,
             fast_model_tasks: vec!["entity_extraction".to_string()],
             escalation_threshold: 0.5,
+            show_reasoning: false,
         };
 
         profile.validate().unwrap();
@@ -2291,6 +2422,7 @@ mod tests {
             fast_model_temperature: 0.3,
             fast_model_tasks: vec![],
             escalation_threshold: 0.6,
+            show_reasoning: false,
         };
 
         let provider = Arc::new(MockProvider::new("Test"));
@@ -2369,6 +2501,7 @@ mod tests {
             fast_model_temperature: 0.3,
             fast_model_tasks: vec![],
             escalation_threshold: 0.6,
+            show_reasoning: false,
         };
 
         let provider = Arc::new(MockProvider::new("Test"));

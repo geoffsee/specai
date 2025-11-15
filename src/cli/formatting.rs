@@ -102,7 +102,7 @@ pub fn render_agent_response(role: &str, content: &str) -> String {
 }
 
 /// Render run metadata (memory recall, tools, token usage)
-pub fn render_run_stats(output: &AgentOutput) -> Option<String> {
+pub fn render_run_stats(output: &AgentOutput, show_reasoning: bool) -> Option<String> {
     let mut sections = Vec::new();
 
     if let Some(stats) = &output.recall_stats {
@@ -239,6 +239,35 @@ pub fn render_run_stats(output: &AgentOutput) -> Option<String> {
             section.push_str("\n");
         }
         sections.push(section);
+    }
+
+    // Display reasoning summary if enabled and available
+    if show_reasoning {
+        // Display reasoning summary if available (more user-friendly)
+        // Fall back to full reasoning if no summary was generated
+        if let Some(summary) = &output.reasoning_summary {
+            if !summary.is_empty() {
+                let mut section = String::from("## Reasoning\n\n");
+                section.push_str(&format!("💭 {}\n", summary));
+                sections.push(section);
+            }
+        } else if let Some(reasoning) = &output.reasoning {
+            if !reasoning.is_empty() {
+                let mut section = String::from("## Reasoning\n\n");
+                // Truncate long reasoning for display
+                let preview = if reasoning.len() > 200 {
+                    format!(
+                        "💭 {}... ({} chars total)",
+                        &reasoning[..197],
+                        reasoning.len()
+                    )
+                } else {
+                    format!("💭 {}", reasoning)
+                };
+                section.push_str(&format!("{}\n", preview));
+                sections.push(section);
+            }
+        }
     }
 
     if let Some(next_action) = &output.next_action {

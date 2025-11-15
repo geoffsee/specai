@@ -154,11 +154,7 @@ impl ToolRegistry {
         self.tools
             .values()
             .map(|tool| {
-                tool_to_openai_function(
-                    tool.name(),
-                    tool.description(),
-                    &tool.parameters(),
-                )
+                tool_to_openai_function(tool.name(), tool.description(), &tool.parameters())
             })
             .collect()
     }

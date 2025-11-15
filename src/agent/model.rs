@@ -50,10 +50,56 @@ pub struct ToolCall {
     pub arguments: serde_json::Value,
 }
 
+/// Parse thinking/reasoning tokens from model response
+///
+/// Extracts content between `<think>` and `</think>` tags as reasoning,
+/// and returns the content after `</think>` as the main response.
+///
+/// # Arguments
+/// * `response` - Raw model response that may contain thinking tokens
+///
+/// # Returns
+/// A tuple of (reasoning, content) where:
+/// - `reasoning` is Some(String) if thinking tags were found, None otherwise
+/// - `content` is the text after `</think>`, or the full response if no tags present
+///
+/// # Example
+/// ```
+/// use spec_ai::agent::model::parse_thinking_tokens;
+///
+/// let response = "<think>Let me consider this...</think>Here's my answer.";
+/// let (reasoning, content) = parse_thinking_tokens(response);
+/// assert_eq!(reasoning, Some("Let me consider this...".to_string()));
+/// assert_eq!(content, "Here's my answer.");
+/// ```
+pub fn parse_thinking_tokens(response: &str) -> (Option<String>, String) {
+    // Pattern to match content between <think> and </think>
+    let think_pattern = regex::Regex::new(r"<think>([\s\S]*?)</think>").unwrap();
+
+    // Try to find thinking content
+    let reasoning = if let Some(captures) = think_pattern.captures(response) {
+        captures.get(1).map(|m| m.as_str().trim().to_string())
+    } else {
+        None
+    };
+
+    // Extract content after </think> tag, or return full response if no tags
+    let content = if let Some(end_idx) = response.find("</think>") {
+        // Get everything after </think>
+        let after_think = &response[end_idx + "</think>".len()..];
+        after_think.trim().to_string()
+    } else {
+        // No thinking tags found, return original response
+        response.to_string()
+    };
+
+    (reasoning, content)
+}
+
 /// Response from a model generation request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelResponse {
-    /// Generated content
+    /// Generated content (with thinking tokens removed if present)
     pub content: String,
     /// Model used for generation
     pub model: String,
@@ -64,6 +110,9 @@ pub struct ModelResponse {
     /// Tool calls from the model (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
+    /// Reasoning/thinking content extracted from <think> tags (if present)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
 }
 
 /// Token usage statistics
@@ -192,5 +241,66 @@ mod tests {
 
         assert_eq!(config.temperature, deserialized.temperature);
         assert_eq!(config.max_tokens, deserialized.max_tokens);
+    }
+
+    #[test]
+    fn test_parse_thinking_tokens_with_tags() {
+        let response = "<think>Let me consider this carefully...</think>Here's my final answer.";
+        let (reasoning, content) = parse_thinking_tokens(response);
+
+        assert_eq!(
+            reasoning,
+            Some("Let me consider this carefully...".to_string())
+        );
+        assert_eq!(content, "Here's my final answer.");
+    }
+
+    #[test]
+    fn test_parse_thinking_tokens_without_tags() {
+        let response = "This is a normal response without thinking tags.";
+        let (reasoning, content) = parse_thinking_tokens(response);
+
+        assert_eq!(reasoning, None);
+        assert_eq!(content, "This is a normal response without thinking tags.");
+    }
+
+    #[test]
+    fn test_parse_thinking_tokens_multiline() {
+        let response = "<think>\nFirst, I need to analyze the problem.\nThen I'll formulate a solution.\n</think>\n\nHere's the answer: 42";
+        let (reasoning, content) = parse_thinking_tokens(response);
+
+        assert!(reasoning.is_some());
+        let reasoning_text = reasoning.unwrap();
+        assert!(reasoning_text.contains("analyze the problem"));
+        assert!(reasoning_text.contains("formulate a solution"));
+        assert_eq!(content, "Here's the answer: 42");
+    }
+
+    #[test]
+    fn test_parse_thinking_tokens_empty_think() {
+        let response = "<think></think>Content after empty think.";
+        let (reasoning, content) = parse_thinking_tokens(response);
+
+        assert_eq!(reasoning, Some("".to_string()));
+        assert_eq!(content, "Content after empty think.");
+    }
+
+    #[test]
+    fn test_parse_thinking_tokens_whitespace_handling() {
+        let response = "<think>  \n  Some reasoning  \n  </think>  \n  Final answer";
+        let (reasoning, content) = parse_thinking_tokens(response);
+
+        assert_eq!(reasoning, Some("Some reasoning".to_string()));
+        assert_eq!(content, "Final answer");
+    }
+
+    #[test]
+    fn test_parse_thinking_tokens_incomplete_tag() {
+        let response = "<think>Incomplete thinking...";
+        let (reasoning, content) = parse_thinking_tokens(response);
+
+        // No closing tag means no reasoning extracted
+        assert_eq!(reasoning, None);
+        assert_eq!(content, "<think>Incomplete thinking...");
     }
 }

@@ -12,7 +12,7 @@ path = "~/.agent_cli/agent_data.duckdb"
 # Main model configuration (for complex reasoning)
 [model]
 provider = "mlx"
-model_name = "mlx-community/gemma-3-4b-it-qat-4bit"
+model_name = "mlx-community/Qwen3-0.6B-4bit"
 embeddings_model = "mlx-community/snowflake-arctic-embed-l-v2.0-4bit"
 temperature = 0.7
 

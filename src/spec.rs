@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -137,12 +137,7 @@ impl AgentSpec {
             .map(|ctx| ctx.to_string())
     }
 
-    fn formatted_list(
-        &self,
-        label: &str,
-        items: &[String],
-        number_items: bool,
-    ) -> Option<String> {
+    fn formatted_list(&self, label: &str, items: &[String], number_items: bool) -> Option<String> {
         let normalized = Self::normalized_items(items);
         if normalized.is_empty() {
             return None;
@@ -185,7 +180,11 @@ impl AgentSpec {
 
     fn context_preview(&self, max_lines: usize) -> Option<String> {
         self.context_text().map(|ctx| {
-            let lines: Vec<&str> = ctx.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+            let lines: Vec<&str> = ctx
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect();
             if lines.is_empty() {
                 return ctx;
             }

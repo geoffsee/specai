@@ -79,6 +79,7 @@ impl ModelProvider for MockProvider {
             }),
             finish_reason: Some("stop".to_string()),
             tool_calls: None,
+            reasoning: None,
         })
     }
 

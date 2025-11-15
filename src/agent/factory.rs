@@ -8,7 +8,7 @@ use crate::agent::providers::MLXProvider;
 use crate::agent::providers::MockProvider;
 #[cfg(feature = "openai")]
 use crate::agent::providers::OpenAIProvider;
-use crate::config::{ModelConfig};
+use crate::config::ModelConfig;
 use anyhow::{Context, Result, anyhow};
 use std::sync::Arc;
 
