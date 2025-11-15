@@ -78,6 +78,8 @@ impl ModelProvider for MockProvider {
                 total_tokens: prompt_tokens + completion_tokens,
             }),
             finish_reason: Some("stop".to_string()),
+            tool_calls: None,
+            reasoning: None,
         })
     }
 

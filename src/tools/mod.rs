@@ -7,6 +7,15 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use self::builtin::{
+    BashTool, EchoTool, FileReadTool, FileWriteTool, GraphTool, MathTool, SearchTool, ShellTool,
+    WebSearchTool,
+};
+use crate::persistence::Persistence;
+
+#[cfg(feature = "openai")]
+use async_openai::types::ChatCompletionTool;
+
 /// Result of tool execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
@@ -67,6 +76,35 @@ impl ToolRegistry {
         }
     }
 
+    /// Create a registry populated with all built-in tools.
+    ///
+    /// Tools that require persistence (e.g., `graph`) are only registered when
+    /// an [`Arc<Persistence>`] is provided.
+    pub fn with_builtin_tools(persistence: Option<Arc<Persistence>>) -> Self {
+        let mut registry = Self::new();
+
+        // Register all built-in tools
+        registry.register(Arc::new(EchoTool::new()));
+        registry.register(Arc::new(MathTool::new()));
+        registry.register(Arc::new(FileReadTool::new()));
+        registry.register(Arc::new(FileWriteTool::new()));
+        registry.register(Arc::new(SearchTool::new()));
+        registry.register(Arc::new(BashTool::new()));
+        registry.register(Arc::new(ShellTool::new()));
+        registry.register(Arc::new(WebSearchTool::new()));
+
+        if let Some(persistence) = persistence {
+            registry.register(Arc::new(GraphTool::new(persistence)));
+        }
+
+        tracing::info!("ToolRegistry created with {} tools", registry.tools.len());
+        for name in registry.tools.keys() {
+            tracing::info!("  - Tool: {}", name);
+        }
+
+        registry
+    }
+
     /// Register a tool in the registry
     pub fn register(&mut self, tool: Arc<dyn Tool>) {
         let name = tool.name().to_string();
@@ -105,6 +143,20 @@ impl ToolRegistry {
     /// Check if the registry is empty
     pub fn is_empty(&self) -> bool {
         self.tools.is_empty()
+    }
+
+    /// Convert all tools in the registry to OpenAI ChatCompletionTool format
+    /// Only available when the "openai" feature is enabled
+    #[cfg(feature = "openai")]
+    pub fn to_openai_tools(&self) -> Vec<ChatCompletionTool> {
+        use crate::agent::function_calling::tool_to_openai_function;
+
+        self.tools
+            .values()
+            .map(|tool| {
+                tool_to_openai_function(tool.name(), tool.description(), &tool.parameters())
+            })
+            .collect()
     }
 }
 

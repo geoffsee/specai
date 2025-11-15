@@ -1,5 +1,19 @@
+pub mod bash;
 pub mod echo;
+pub mod file_read;
+pub mod file_write;
+pub mod graph;
 pub mod math;
+pub mod search;
+pub mod shell;
+pub mod web_search;
 
+pub use bash::BashTool;
 pub use echo::EchoTool;
+pub use file_read::FileReadTool;
+pub use file_write::FileWriteTool;
+pub use graph::GraphTool;
 pub use math::MathTool;
+pub use search::SearchTool;
+pub use shell::ShellTool;
+pub use web_search::WebSearchTool;

@@ -3,6 +3,7 @@ use spec_ai::config::{
     AgentProfile, AppConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig,
 };
 use std::collections::HashMap;
+use std::fs;
 use tempfile::TempDir;
 
 // Import the formatting module to access set_plain_text_mode
@@ -120,6 +121,78 @@ async fn test_full_cli_workflow() {
     assert!(config_display.contains("Model Provider: mock"));
     assert!(config_display.contains("Temperature: 0.7"));
     assert!(config_display.contains("Agents: 2"));
+}
+
+/// Test executing a spec file
+#[tokio::test]
+async fn test_spec_run_command() {
+    formatting::set_plain_text_mode(true);
+
+    let dir = TempDir::new().unwrap();
+    let db_path = dir.path().join("spec_run.duckdb");
+    let spec_path = dir.path().join("feature.spec");
+
+    let spec_contents = r#"
+name = "Add CLI spec command"
+goal = "Validate that the CLI loads .spec files"
+
+tasks = [
+    "Load the file",
+    "Send it to the agent"
+]
+
+deliverables = [
+    "Mock response referencing the spec"
+]
+    "#;
+    fs::write(&spec_path, spec_contents).unwrap();
+
+    let mut default_profile = AgentProfile::default();
+    default_profile.fast_reasoning = false;
+    default_profile.enable_graph = false;
+    default_profile.graph_memory = false;
+    default_profile.graph_steering = false;
+    default_profile.auto_graph = false;
+
+    let mut agents = HashMap::new();
+    agents.insert("default".to_string(), default_profile);
+
+    let config = AppConfig {
+        database: DatabaseConfig { path: db_path },
+        model: ModelConfig {
+            provider: "mock".into(),
+            model_name: None,
+            embeddings_model: None,
+            api_key_source: None,
+            temperature: 0.7,
+        },
+        ui: UiConfig {
+            prompt: "> ".into(),
+            theme: "default".into(),
+        },
+        logging: LoggingConfig {
+            level: "info".into(),
+        },
+        agents,
+        default_agent: Some("default".into()),
+    };
+
+    let mut cli = CliState::new_with_config(config).unwrap();
+
+    let output = cli
+        .handle_line(&format!("/spec run {}", spec_path.display()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(output.contains("Executing spec"));
+    assert!(output.contains("Add CLI spec command"));
+
+    let shorthand_output = cli
+        .handle_line(&format!("/spec {}", spec_path.display()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(shorthand_output.contains("Executing spec"));
 }
 
 /// Test session isolation - messages in one session don't appear in another

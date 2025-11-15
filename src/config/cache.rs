@@ -143,13 +143,30 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_config() -> AppConfig {
+        use crate::config::{DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
+        use std::collections::HashMap;
+        use std::path::PathBuf;
+
         AppConfig {
-            model: super::super::ModelConfig {
-                provider: "test".to_string(),
-                temperature: 0.5,
-                ..Default::default()
+            database: DatabaseConfig {
+                path: PathBuf::from("/tmp/test.db"),
             },
-            ..Default::default()
+            model: ModelConfig {
+                provider: "test".to_string(),
+                model_name: None,
+                embeddings_model: None,
+                api_key_source: None,
+                temperature: 0.5,
+            },
+            ui: UiConfig {
+                prompt: "> ".to_string(),
+                theme: "default".to_string(),
+            },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+            },
+            agents: HashMap::new(),
+            default_agent: None,
         }
     }
 

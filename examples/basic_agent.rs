@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
         memory_k: 10,
         top_p: 0.9,
         max_context_tokens: Some(4096),
+        ..AgentProfile::default()
     };
 
     // Build the agent

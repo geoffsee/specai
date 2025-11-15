@@ -120,6 +120,7 @@ async fn test_agent_with_tool_registry() {
         memory_k: 5,
         top_p: 0.9,
         max_context_tokens: Some(2048),
+        ..AgentProfile::default()
     };
 
     // Create tool registry with both tools
@@ -162,6 +163,7 @@ async fn test_agent_tool_permissions_allowlist() {
         memory_k: 5,
         top_p: 0.9,
         max_context_tokens: Some(2048),
+        ..AgentProfile::default()
     };
 
     let mut tool_registry = ToolRegistry::new();
@@ -202,6 +204,7 @@ async fn test_agent_tool_permissions_denylist() {
         memory_k: 5,
         top_p: 0.9,
         max_context_tokens: Some(2048),
+        ..AgentProfile::default()
     };
 
     let mut tool_registry = ToolRegistry::new();
@@ -241,6 +244,7 @@ async fn test_tool_execution_logging() {
         memory_k: 5,
         top_p: 0.9,
         max_context_tokens: Some(2048),
+        ..AgentProfile::default()
     };
 
     let mut tool_registry = ToolRegistry::new();
@@ -265,7 +269,7 @@ async fn test_tool_execution_logging() {
 }
 
 #[tokio::test]
-async fn test_default_empty_tool_registry() {
+async fn test_default_builtin_tool_registry() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("test.duckdb");
     let persistence = Persistence::new(&db_path).unwrap();
@@ -282,9 +286,14 @@ async fn test_default_empty_tool_registry() {
         .build()
         .unwrap();
 
-    // Should have empty registry by default
-    assert_eq!(agent.tool_registry().len(), 0);
-    assert!(agent.tool_registry().is_empty());
+    // Should be populated with built-in tools by default
+    let registry = agent.tool_registry();
+    assert!(registry.len() >= 5);
+    assert!(registry.has("echo"));
+    assert!(registry.has("math"));
+    assert!(registry.has("file_read"));
+    assert!(registry.has("file_write"));
+    assert!(registry.has("bash"));
 }
 
 #[tokio::test]

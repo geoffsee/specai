@@ -50,7 +50,45 @@ impl EmbeddingsClient {
 
     /// Ask the underlying service for an embedding.
     pub async fn embed(&self, input: &str) -> Result<Vec<f32>> {
-        self.service.create_embeddings(&self.model, input).await
+        let sanitized = sanitize_embedding_input(input);
+        self.service
+            .create_embeddings(&self.model, &sanitized)
+            .await
+    }
+}
+
+fn sanitize_embedding_input(input: &str) -> String {
+    const MAX_LEN: usize = 4096;
+    let mut processed = input
+        .replace('\\', "\\\\")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n");
+
+    if processed.len() > MAX_LEN {
+        processed.truncate(MAX_LEN);
+        processed.push_str("\\n[truncated]");
+    }
+
+    processed
+}
+
+#[cfg(test)]
+mod embedding_sanitizer_tests {
+    use super::sanitize_embedding_input;
+
+    #[test]
+    fn sanitizes_newlines_and_backslashes() {
+        let raw = "line1\nline2\r\npath\\to\\file";
+        let sanitized = sanitize_embedding_input(raw);
+        assert_eq!(sanitized, "line1\\nline2\\r\\npath\\\\to\\\\file");
+    }
+
+    #[test]
+    fn truncates_long_payloads() {
+        let raw = "a".repeat(5000);
+        let sanitized = sanitize_embedding_input(&raw);
+        assert!(sanitized.ends_with("\\n[truncated]"));
+        assert!(sanitized.len() <= 4096 + "\\n[truncated]".len());
     }
 }
 

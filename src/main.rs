@@ -9,7 +9,7 @@ async fn main() -> Result<()> {
 
     // Initialize logging based on config
     let log_level = cli.config.logging.level.to_uppercase();
-    let env_filter = format!("specai={}", log_level.to_lowercase());
+    let env_filter = format!("spec_ai={}", log_level.to_lowercase());
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)
         .with_target(false)
