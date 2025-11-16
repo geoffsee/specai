@@ -1,31 +1,185 @@
-# SpecAI Configuration
-# Default agent to use
-default_agent = "default"
+# Spec-AI Multi-Model Configuration
+# This example shows how to configure hierarchical reasoning with a fast model
+# for preliminary tasks and a main model for complex reasoning
+
+# Default agent with multi-model reasoning
+default_agent = "multi_model_agent"
 
 # Database configuration
 [database]
 path = "~/.agent_cli/agent_data.duckdb"
 
-# Model configuration
+# Main model configuration (for complex reasoning)
 [model]
 provider = "mlx"
+model_name = "mlx-community/Qwen3-0.6B-4bit"
+embeddings_model = "mlx-community/snowflake-arctic-embed-l-v2.0-4bit"
 temperature = 0.7
-model_name = "mlx-community/gemma-3-12b-it-qat-4bit"
-embeddings_model = "mlx-community/embeddinggemma-300m-4bit"
 
-# UI configuration
+# User interface configuration
 [ui]
 theme = "default"
-prompt = "> "
+prompt="$ "
 
 # Logging configuration
 [logging]
 level = "info"
 
-# Agent profiles
-[agents.default]
-prompt = "You are a helpful AI assistant."
-style = "professional"
+# ========== MULTI-MODEL AGENT CONFIGURATION ==========
+[agents.multi_model_agent]
+# Basic agent configuration
+prompt = """You are a practical coding assistant that helps users build software.
+When users request to build something, immediately take action by:
+1. Creating necessary files using the file_write tool
+2. Writing actual code, not descriptions or plans
+3. Using bash to run and test code when appropriate
+4. Iterating based on results
+
+You have access to a fast model for quick analysis, but code generation
+should always result in actual file creation, not planning documents.
+When a user confirms a technology choice (e.g., "Let's do Python with Pygame"),
+immediately generate starter code using file_write."""
 temperature = 0.7
-memory_k = 10
-top_p = 0.95
+memory_k = 20
+top_p = 0.9
+
+# Explicitly allow tools for code generation
+allowed_tools = [
+    "file_write",
+    "file_read",
+    "bash",
+    "shell",
+    "search",
+    "echo",
+    "web_search",
+    "graph",
+    "math"
+]
+
+# ========== HIERARCHICAL MULTI-MODEL REASONING ==========
+# Enable fast reasoning with Llama-3.2-3B
+fast_reasoning = true
+
+# Fast model provider configuration
+# MLX for Apple Silicon Macs, or Ollama for cross-platform
+fast_model_provider = "mlx"  # Options: "mlx", "ollama"
+
+# Llama-3.2-3B model (4-bit quantized for efficiency)
+fast_model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+
+# For Ollama, use:
+# fast_model_provider = "ollama"
+# fast_model_name = "llama3.2:3b"
+
+# Lower temperature for consistent fast model responses
+fast_model_temperature = 0.3
+
+# Tasks delegated to the fast model
+# Removed: decision_routing, tool_selection, classification (these prevent action-taking)
+fast_model_tasks = [
+    "entity_extraction",      # Extract names, dates, URLs, emails
+    "graph_analysis",         # Analyze graph relationships
+    "confidence_scoring",    # Assess response confidence
+    "summarization",         # Quick summaries of short texts
+    "syntax_checking",       # Check code syntax
+]
+style = "professional"
+
+# Confidence threshold for escalation to main model
+# If fast model confidence < threshold, escalate to main model
+escalation_threshold = 0.6
+
+# ========== KNOWLEDGE GRAPH (OPTIONAL) ==========
+# Can be combined with multi-model reasoning
+enable_graph = true
+graph_memory = true
+auto_graph = true
+graph_steering = true
+graph_depth = 3
+graph_weight = 0.5
+
+# ========== FAST LOCAL AGENT (Llama Only) ==========
+[agents.fast_local]
+prompt = "You are a fast, efficient assistant running locally."
+temperature = 0.3
+memory_k = 5
+
+# Use only the fast model (no main model)
+model_provider = "mlx"
+model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+
+# No hierarchical reasoning (single model)
+fast_reasoning = false
+
+# ========== RESEARCH AGENT WITH FAST PRE-PROCESSING ==========
+[agents.researcher]
+prompt = """You are a research assistant that uses fast models for initial
+document processing and entity extraction, then uses the main model for
+analysis and synthesis."""
+temperature = 0.5
+memory_k = 30
+
+# Enable multi-model for research
+fast_reasoning = true
+fast_model_provider = "mlx"
+fast_model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+fast_model_temperature = 0.2
+
+# Research-specific fast tasks
+fast_model_tasks = [
+    "entity_extraction",     # Extract entities from papers
+    "reference_parsing",     # Parse citations
+    "keyword_extraction",    # Extract key terms
+    "initial_categorization", # Categorize documents
+    "metadata_extraction",   # Extract doc metadata
+]
+
+escalation_threshold = 0.7  # Higher threshold for research accuracy
+
+# ========== CODING ASSISTANT WITH SYNTAX CHECKING ==========
+[agents.coder]
+prompt = """You are a coding assistant that uses a fast model for syntax checking
+and simple code analysis, and the main model for complex refactoring and design."""
+temperature = 0.3
+memory_k = 25
+
+# Enable fast model for code tasks
+fast_reasoning = true
+fast_model_provider = "mlx"
+fast_model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+fast_model_temperature = 0.1  # Very low for deterministic syntax checking
+
+fast_model_tasks = [
+    "syntax_checking",       # Check code syntax
+    "linting",              # Basic code linting
+    "import_resolution",     # Resolve imports
+    "variable_tracking",     # Track variable usage
+    "simple_completions",    # Complete simple patterns
+]
+
+escalation_threshold = 0.5  # Escalate complex logic quickly
+
+# ========== PERFORMANCE NOTES ==========
+#
+# Llama-3.2-3B Performance on Apple Silicon:
+# - M1 Max: ~50-70 tokens/second
+# - M2 Ultra: ~100-120 tokens/second
+# - M3 Max: ~80-100 tokens/second
+#
+# Speedup vs GPT-4:
+# - Entity extraction: 5-10x faster
+# - Simple classification: 8-12x faster
+# - Syntax checking: 10-15x faster
+# - Complex reasoning: Use main model (no speedup)
+#
+# Cost Savings:
+# - Local Llama-3.2-3B: $0 (runs on your hardware)
+# - GPT-4: ~$0.03 per 1K tokens
+# - Typical savings: 60-80% for mixed workloads
+#
+# Best Practices:
+# 1. Use fast model for well-defined, simple tasks
+# 2. Set appropriate escalation thresholds per use case
+# 3. Monitor confidence scores to tune thresholds
+# 4. Batch similar tasks for better throughput
+# 5. Use graph memory to cache fast model extractions

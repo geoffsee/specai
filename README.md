@@ -4,6 +4,10 @@ A "production-quality", completely vibe coded, agentic AI CLI built in Rust with
 
 ## Quick Start
 
+```shell
+cargo binstall spec-ai
+```
+
 ### Installation
 
 ```bash
@@ -55,6 +59,47 @@ Configuration loaded:
   Logging Level: info
   UI Theme: default
 ```
+
+## Structured Specs
+
+You can capture complex tasks in reusable `.spec` files and hand them directly to the agent:
+
+1. Write a TOML file with the `.spec` extension describing the goal, tasks, and expected deliverables.
+2. Start the CLI (`cargo run`) and enter `/spec run path/to/plan.spec` (or the shorthand `/spec path/to/plan.spec`).
+
+Example spec:
+
+```toml
+name = "Docs refresh"
+goal = "Document the new spec runner command across the README"
+
+context = """
+Capture the CLI command syntax and show a working example.
+"""
+
+tasks = [
+  "Explain how to invoke the command",
+  "Provide a sample `.spec` file",
+  "Highlight the goal/deliverables requirement"
+]
+
+deliverables = [
+  "Updated README summary of the feature",
+  "Code snippets demonstrating the workflow"
+]
+```
+
+Specs must include a `goal` plus at least one entry in `tasks` or `deliverables`. The CLI prints a preview before executing the spec with the current agent.
+
+To batch test specs (or just run a smoke check), use the helper script:
+
+```bash
+scripts/run_specs.sh            # runs specs/smoke.spec by default
+scripts/run_specs.sh specs/     # run every *.spec inside specs/
+SPEC_AI_CMD="cargo run --" scripts/run_specs.sh custom.spec
+```
+
+The default `specs/smoke.spec` is purposely simple and works against the mock provider so you can verify the CLI still functions after code changes.
 
 ## Architecture
 

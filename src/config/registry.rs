@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -30,8 +30,15 @@ impl AgentRegistry {
         // Load the active agent from persistence if it exists
         if let Some(entry) = self.persistence.policy_get(ACTIVE_AGENT_KEY)? {
             if let Some(agent_name) = entry.value.as_str() {
-                let mut active = self.active_agent.write().unwrap();
-                *active = Some(agent_name.to_string());
+                // Validate that this agent still exists in the registry
+                let agents = self.agents.read().unwrap();
+                if agents.contains_key(agent_name) {
+                    drop(agents);
+                    let mut active = self.active_agent.write().unwrap();
+                    *active = Some(agent_name.to_string());
+                }
+                // If the persisted agent doesn't exist, we'll leave active as None
+                // and let the caller set a new default
             }
         }
         Ok(())
@@ -153,6 +160,11 @@ impl AgentRegistry {
     pub fn count(&self) -> usize {
         let agents = self.agents.read().unwrap();
         agents.len()
+    }
+
+    /// Get the shared persistence layer
+    pub fn persistence(&self) -> &Persistence {
+        &self.persistence
     }
 }
 

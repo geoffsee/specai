@@ -1,18 +1,20 @@
 //! OpenAI Model Provider
 //!
 //! Integration with OpenAI's API using the async-openai crate.
+//! Supports native function calling via the tools parameter.
 
 use crate::agent::model::{
-    GenerationConfig, ModelProvider, ModelResponse, ProviderKind, ProviderMetadata, TokenUsage,
+    parse_thinking_tokens, GenerationConfig, ModelProvider, ModelResponse, ProviderKind,
+    ProviderMetadata, TokenUsage, ToolCall,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_openai::{
-    Client,
     config::OpenAIConfig,
     types::{
         ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
-        ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
+        ChatCompletionRequestUserMessageArgs, ChatCompletionTool, CreateChatCompletionRequestArgs,
     },
+    Client,
 };
 use async_stream::stream;
 use async_trait::async_trait;
@@ -20,6 +22,7 @@ use futures::Stream;
 use std::pin::Pin;
 
 /// OpenAI provider that wraps the async-openai crate
+/// Supports both regular text generation and native function calling via tools.
 #[derive(Debug, Clone)]
 pub struct OpenAIProvider {
     /// The async-openai client
@@ -28,6 +31,8 @@ pub struct OpenAIProvider {
     model: String,
     /// Optional system message for all requests
     system_message: Option<String>,
+    /// Optional tools available for function calling
+    tools: Option<Vec<ChatCompletionTool>>,
 }
 
 impl OpenAIProvider {
@@ -40,6 +45,7 @@ impl OpenAIProvider {
             client: Client::new(),
             model: "gpt-4.1-mini".to_string(),
             system_message: None,
+            tools: None,
         }
     }
 
@@ -50,6 +56,7 @@ impl OpenAIProvider {
             client: Client::with_config(config),
             model: "gpt-4.1-mini".to_string(),
             system_message: None,
+            tools: None,
         }
     }
 
@@ -59,6 +66,7 @@ impl OpenAIProvider {
             client: Client::with_config(config),
             model: "gpt-4.1-mini".to_string(),
             system_message: None,
+            tools: None,
         }
     }
 
@@ -71,6 +79,12 @@ impl OpenAIProvider {
     /// Set a system message to be included in all requests
     pub fn with_system_message(mut self, message: impl Into<String>) -> Self {
         self.system_message = Some(message.into());
+        self
+    }
+
+    /// Set tools available for function calling
+    pub fn with_tools(mut self, tools: Vec<ChatCompletionTool>) -> Self {
+        self.tools = if tools.is_empty() { None } else { Some(tools) };
         self
     }
 
@@ -132,6 +146,11 @@ impl ModelProvider for OpenAIProvider {
             request_builder.stop(stop.clone());
         }
 
+        // Add tools to the request if available (native function calling)
+        if let Some(ref tools) = self.tools {
+            request_builder.tools(tools.clone());
+        }
+
         let request = request_builder
             .build()
             .map_err(|e| anyhow!("Failed to build request: {}", e))?;
@@ -150,11 +169,30 @@ impl ModelProvider for OpenAIProvider {
             .first()
             .ok_or_else(|| anyhow!("No response choices returned"))?;
 
-        let content = choice
+        let raw_content = choice.message.content.clone().unwrap_or_default();
+
+        // Parse thinking tokens if present
+        let (reasoning, content) = parse_thinking_tokens(&raw_content);
+
+        // Parse tool calls if present
+        let tool_calls = choice
             .message
-            .content
-            .clone()
-            .ok_or_else(|| anyhow!("No content in response"))?;
+            .tool_calls
+            .as_ref()
+            .map(|calls| {
+                calls
+                    .iter()
+                    .filter_map(|call| {
+                        let arguments = serde_json::from_str(&call.function.arguments).ok()?;
+                        Some(ToolCall {
+                            id: call.id.clone(),
+                            function_name: call.function.name.clone(),
+                            arguments,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|calls| !calls.is_empty());
 
         let usage = response.usage.map(|u| TokenUsage {
             prompt_tokens: u.prompt_tokens,
@@ -167,6 +205,8 @@ impl ModelProvider for OpenAIProvider {
             model: response.model,
             usage,
             finish_reason: choice.finish_reason.as_ref().map(|r| format!("{:?}", r)),
+            tool_calls,
+            reasoning,
         })
     }
 
@@ -216,15 +256,45 @@ impl ModelProvider for OpenAIProvider {
             .map_err(|e| anyhow!("OpenAI streaming API error: {}", e))?;
 
         // Convert the OpenAI stream to our stream format
+        // Buffer to track if we're in a <think> block
         let stream = stream! {
             use futures::StreamExt;
+
+            let mut buffer = String::new();
+            let mut in_think_block = false;
+            let mut think_ended = false;
 
             while let Some(result) = response_stream.next().await {
                 match result {
                     Ok(response) => {
                         if let Some(choice) = response.choices.first() {
                             if let Some(content) = &choice.delta.content {
-                                yield Ok(content.clone());
+                                buffer.push_str(content);
+
+                                // Check if we're entering a think block
+                                if buffer.contains("<think>") && !in_think_block {
+                                    in_think_block = true;
+                                }
+
+                                // Check if we're exiting a think block
+                                if buffer.contains("</think>") && in_think_block {
+                                    in_think_block = false;
+                                    think_ended = true;
+                                    // Clear buffer up to and including </think>
+                                    if let Some(idx) = buffer.find("</think>") {
+                                        buffer = buffer[idx + "</think>".len()..].to_string();
+                                    }
+                                }
+
+                                // Only yield content if we're not in a think block and think has ended
+                                // or if we never encountered think tags
+                                if !in_think_block && (think_ended || !buffer.contains("<think>")) {
+                                    let output = buffer.clone();
+                                    buffer.clear();
+                                    if !output.is_empty() {
+                                        yield Ok(output);
+                                    }
+                                }
                             }
                         }
                     }
@@ -233,6 +303,11 @@ impl ModelProvider for OpenAIProvider {
                         break;
                     }
                 }
+            }
+
+            // Yield any remaining buffered content
+            if !buffer.is_empty() && !in_think_block {
+                yield Ok(buffer);
             }
         };
 
@@ -263,7 +338,10 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_creation() {
         let provider = OpenAIProvider::new();
         assert_eq!(provider.model, "gpt-4.1-mini");
@@ -271,14 +349,20 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_with_model() {
         let provider = OpenAIProvider::new().with_model("gpt-4.1");
         assert_eq!(provider.model, "gpt-4.1");
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_with_system_message() {
         let provider = OpenAIProvider::new().with_system_message("You are a helpful assistant.");
         assert_eq!(
@@ -288,7 +372,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_metadata() {
         let provider = OpenAIProvider::new();
         let metadata = provider.metadata();
@@ -296,22 +383,26 @@ mod tests {
         assert_eq!(metadata.name, "OpenAI");
         assert!(metadata.supports_streaming);
         assert!(metadata.supported_models.contains(&"gpt-4.1".to_string()));
-        assert!(
-            metadata
-                .supported_models
-                .contains(&"gpt-4.1-mini".to_string())
-        );
+        assert!(metadata
+            .supported_models
+            .contains(&"gpt-4.1-mini".to_string()));
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_openai_provider_kind() {
         let provider = OpenAIProvider::new();
         assert_eq!(provider.kind(), ProviderKind::OpenAI);
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_build_messages_without_system() {
         let provider = OpenAIProvider::new();
         let messages = provider.build_messages("Hello, world!").unwrap();
@@ -320,7 +411,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_build_messages_with_system() {
         let provider = OpenAIProvider::new().with_system_message("You are a helpful assistant.");
         let messages = provider.build_messages("Hello, world!").unwrap();

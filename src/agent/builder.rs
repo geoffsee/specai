@@ -4,14 +4,19 @@
 
 use crate::agent::core::AgentCore;
 use crate::agent::factory::{create_provider, resolve_api_key};
-use crate::agent::model::ModelProvider;
-use crate::config::{AgentProfile, AgentRegistry, AppConfig};
+use crate::agent::model::{ModelProvider, ProviderKind};
+#[cfg(feature = "openai")]
+use crate::agent::providers::openai::OpenAIProvider;
+use crate::config::{AgentProfile, AgentRegistry, AppConfig, ModelConfig};
 use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::PolicyEngine;
 use crate::tools::ToolRegistry;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
+#[cfg(feature = "mlx")]
+use async_openai::config::OpenAIConfig;
 use std::sync::Arc;
+use tracing::{info, warn};
 
 /// Builder for constructing AgentCore instances
 pub struct AgentBuilder {
@@ -113,18 +118,7 @@ impl AgentBuilder {
             .profile
             .ok_or_else(|| anyhow!("Agent profile is required"))?;
 
-        // Get or create provider
-        let provider = if let Some(provider) = self.provider {
-            provider
-        } else if let Some(ref config) = self.config {
-            create_provider(&config.model).context("Failed to create provider from config")?
-        } else {
-            return Err(anyhow!(
-                "Either provider or config must be provided to build agent"
-            ));
-        };
-
-        // Get or create persistence
+        // Get or create persistence (needed for tool registry)
         let persistence = if let Some(persistence) = self.persistence {
             persistence
         } else if let Some(ref config) = self.config {
@@ -132,6 +126,68 @@ impl AgentBuilder {
         } else {
             return Err(anyhow!(
                 "Either persistence or config must be provided to build agent"
+            ));
+        };
+
+        // Get or create tool registry (defaults to built-in tools)
+        // Create this before the provider so OpenAI can be configured with tools
+        let tool_registry = self.tool_registry.unwrap_or_else(|| {
+            let persistence_arc = Arc::new(persistence.clone());
+            let registry = ToolRegistry::with_builtin_tools(Some(persistence_arc));
+            info!(
+                "Created tool registry with {} builtin tools",
+                registry.len()
+            );
+            for tool_name in registry.list() {
+                info!("  - Registered tool: {}", tool_name);
+            }
+            Arc::new(registry)
+        });
+
+        // Get or create provider with tools configured (for OpenAI)
+        let provider = if let Some(provider) = self.provider {
+            provider
+        } else if let Some(ref config) = self.config {
+            let mut base_provider =
+                create_provider(&config.model).context("Failed to create provider from config")?;
+
+            // Configure OpenAI provider with tools for native function calling
+            #[cfg(feature = "openai")]
+            {
+                if base_provider.kind() == ProviderKind::OpenAI {
+                    let openai_tools = tool_registry.to_openai_tools();
+                    if !openai_tools.is_empty() {
+                        info!(
+                            "Configuring OpenAI provider with {} tools for native function calling",
+                            openai_tools.len()
+                        );
+
+                        // Recreate OpenAI provider with tools
+                        let api_key = if let Some(source) = &config.model.api_key_source {
+                            resolve_api_key(source)?
+                        } else {
+                            // Default to OPENAI_API_KEY environment variable
+                            std::env::var("OPENAI_API_KEY")
+                                .context("OPENAI_API_KEY environment variable not set")?
+                        };
+
+                        let mut openai_provider = OpenAIProvider::with_api_key(api_key);
+
+                        // Set model if specified in config
+                        if let Some(model_name) = &config.model.model_name {
+                            openai_provider = openai_provider.with_model(model_name.clone());
+                        }
+
+                        // Configure with tools and cast to trait object
+                        base_provider = Arc::new(openai_provider.with_tools(openai_tools));
+                    }
+                }
+            }
+
+            base_provider
+        } else {
+            return Err(anyhow!(
+                "Either provider or config must be provided to build agent"
             ));
         };
 
@@ -149,22 +205,56 @@ impl AgentBuilder {
             .session_id
             .unwrap_or_else(|| format!("session-{}", chrono::Utc::now().timestamp_millis()));
 
-        // Get or create tool registry (defaults to empty registry)
-        let tool_registry = self
-            .tool_registry
-            .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
-
         // Get or create policy engine (defaults to empty policy engine, or load from persistence)
         let policy_engine = if let Some(engine) = self.policy_engine {
             engine
         } else {
-            // Try to load from persistence, or create empty engine
-            let engine = PolicyEngine::load_from_persistence(&persistence)
+            // Try to load from persistence, or create empty engine with default allow rule
+            let mut engine = PolicyEngine::load_from_persistence(&persistence)
                 .unwrap_or_else(|_| PolicyEngine::new());
+
+            // If the policy engine has no rules at all, add a default allow-all for tools
+            if engine.rule_count() == 0 {
+                info!("Empty policy engine detected, adding default allow-all rule for tools");
+                engine.add_rule(crate::policy::PolicyRule {
+                    agent: "*".to_string(),
+                    action: "tool_call".to_string(),
+                    resource: "*".to_string(),
+                    effect: crate::policy::PolicyEffect::Allow,
+                });
+            }
+
             Arc::new(engine)
         };
 
-        Ok(AgentCore::new(
+        let fast_provider = if profile.fast_reasoning {
+            match (&profile.fast_model_provider, &profile.fast_model_name) {
+                (Some(provider_name), Some(model_name)) => {
+                    let fast_config = ModelConfig {
+                        provider: provider_name.clone(),
+                        model_name: Some(model_name.clone()),
+                        embeddings_model: None,
+                        api_key_source: None,
+                        temperature: profile.fast_model_temperature,
+                    };
+                    match create_provider(&fast_config) {
+                        Ok(provider) => Some(provider),
+                        Err(err) => {
+                            warn!(
+                                "Failed to create fast provider {}:{} - {}",
+                                provider_name, model_name, err
+                            );
+                            None
+                        }
+                    }
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let mut agent = AgentCore::new(
             profile,
             provider,
             embeddings_client,
@@ -173,7 +263,13 @@ impl AgentBuilder {
             self.agent_name,
             tool_registry,
             policy_engine,
-        ))
+        );
+
+        if let Some(fast_provider) = fast_provider {
+            agent = agent.with_fast_provider(fast_provider);
+        }
+
+        Ok(agent)
     }
 }
 
@@ -197,6 +293,7 @@ pub fn create_agent_from_registry(
     let mut builder = AgentBuilder::new()
         .with_profile(profile)
         .with_config(config.clone())
+        .with_persistence(registry.persistence().clone())
         .with_agent_name(agent_name.clone());
 
     if let Some(sid) = session_id {
@@ -212,6 +309,13 @@ fn create_embeddings_client_from_config(config: &AppConfig) -> Result<Option<Emb
         return Ok(None);
     };
 
+    #[cfg(feature = "mlx")]
+    {
+        if ProviderKind::from_str(&model.provider) == Some(ProviderKind::MLX) {
+            return Ok(Some(build_mlx_embeddings_client(model_name)));
+        }
+    }
+
     let client = if let Some(source) = &model.api_key_source {
         let api_key = resolve_api_key(source)?;
         EmbeddingsClient::with_api_key(model_name.clone(), api_key)
@@ -220,6 +324,23 @@ fn create_embeddings_client_from_config(config: &AppConfig) -> Result<Option<Emb
     };
 
     Ok(Some(client))
+}
+
+#[cfg(feature = "mlx")]
+fn build_mlx_embeddings_client(model_name: &str) -> EmbeddingsClient {
+    let endpoint =
+        std::env::var("MLX_ENDPOINT").unwrap_or_else(|_| "http://localhost:10240".to_string());
+    let api_base = if endpoint.ends_with("/v1") {
+        endpoint
+    } else {
+        format!("{}/v1", endpoint)
+    };
+
+    let config = OpenAIConfig::new()
+        .with_api_base(api_base)
+        .with_api_key("mlx-key");
+
+    EmbeddingsClient::with_config(model_name.to_string(), config)
 }
 
 #[cfg(test)]
@@ -267,6 +388,20 @@ mod tests {
             memory_k: 10,
             top_p: 0.95,
             max_context_tokens: Some(4096),
+            enable_graph: false,
+            graph_memory: false,
+            auto_graph: false,
+            graph_steering: false,
+            graph_depth: 3,
+            graph_weight: 0.5,
+            graph_threshold: 0.7,
+            fast_reasoning: false,
+            fast_model_provider: None,
+            fast_model_name: None,
+            fast_model_temperature: 0.3,
+            fast_model_tasks: vec![],
+            escalation_threshold: 0.6,
+            show_reasoning: false,
         }
     }
 
@@ -333,13 +468,11 @@ mod tests {
             .build();
 
         assert!(result.is_err());
-        assert!(
-            result
-                .err()
-                .unwrap()
-                .to_string()
-                .contains("provider or config")
-        );
+        assert!(result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("provider or config"));
     }
 
     #[test]

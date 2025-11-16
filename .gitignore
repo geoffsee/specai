@@ -5,3 +5,5 @@ archive
 .gsio-memory
 prompt.md
 .toak-ignore
+/*.db
+/docs

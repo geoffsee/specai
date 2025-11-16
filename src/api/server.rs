@@ -1,12 +1,12 @@
 /// HTTP server implementation
-use crate::api::handlers::{AppState, health_check, list_agents, query, stream_query};
+use crate::api::handlers::{health_check, list_agents, query, stream_query, AppState};
 use crate::config::{AgentRegistry, AppConfig};
 use crate::persistence::Persistence;
 use crate::tools::ToolRegistry;
 use anyhow::Result;
 use axum::{
-    Router,
     routing::{get, post},
+    Router,
 };
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};

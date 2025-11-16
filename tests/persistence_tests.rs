@@ -15,7 +15,7 @@ fn temp_db_path() -> std::path::PathBuf {
 fn db_initializes_and_tables_exist() {
     let path = temp_db_path();
     let p = Persistence::new(&path).expect("init db");
-    let conn = p.conn().unwrap();
+    let conn = p.conn();
     // Should be able to query each table
     for table in ["messages", "memory_vectors", "tool_log", "policy_cache"].iter() {
         let sql = format!("SELECT COUNT(*) FROM {}", table);
@@ -87,14 +87,12 @@ fn memory_vectors_insert_and_recall() {
     let recalled = p.recall_top_k("sess", &q, 2).unwrap();
     assert_eq!(recalled.len(), 2);
     assert!(recalled[0].1 >= recalled[1].1);
-    assert!(
-        recalled[0]
-            .0
-            .embedding
-            .iter()
-            .zip(v1.iter())
-            .all(|(a, b)| (*a - *b).abs() < 1e-6)
-    );
+    assert!(recalled[0]
+        .0
+        .embedding
+        .iter()
+        .zip(v1.iter())
+        .all(|(a, b)| (*a - *b).abs() < 1e-6));
 }
 
 #[test]
@@ -110,7 +108,7 @@ fn tool_log_insert() {
         .unwrap();
     assert!(id > 0);
 
-    let conn = p.conn().unwrap();
+    let conn = p.conn();
     let mut stmt = conn.prepare("SELECT COUNT(*) FROM tool_log").unwrap();
     let count: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
     assert_eq!(count, 1);

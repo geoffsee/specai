@@ -1,11 +1,11 @@
-use spec_ai::agent::AgentCore;
 use spec_ai::agent::providers::MockProvider;
+use spec_ai::agent::AgentCore;
 use spec_ai::config::AgentProfile;
 use spec_ai::persistence::Persistence;
 use spec_ai::policy::{PolicyDecision, PolicyEffect, PolicyEngine, PolicyRule};
 use spec_ai::tools::{
-    ToolRegistry,
     builtin::{EchoTool, MathTool},
+    ToolRegistry,
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -57,6 +57,7 @@ fn test_policy_denies_tool_by_default() {
         memory_k: 5,
         top_p: 0.9,
         max_context_tokens: Some(2048),
+        ..AgentProfile::default()
     };
 
     let (agent, _dir) = create_test_agent_with_policy(policy_engine, profile);
@@ -95,6 +96,7 @@ fn test_policy_allows_specific_tool() {
         memory_k: 5,
         top_p: 0.9,
         max_context_tokens: Some(2048),
+        ..AgentProfile::default()
     };
 
     let (agent, _dir) = create_test_agent_with_policy(Arc::new(policy_engine), profile);
@@ -327,6 +329,7 @@ fn test_policy_combined_with_profile_permissions() {
         memory_k: 5,
         top_p: 0.9,
         max_context_tokens: Some(2048),
+        ..AgentProfile::default()
     };
 
     let (agent, _dir) = create_test_agent_with_policy(Arc::new(policy_engine), profile);

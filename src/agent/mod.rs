@@ -1,6 +1,7 @@
 pub mod builder;
 pub mod core;
 pub mod factory;
+pub mod function_calling;
 pub mod model;
 pub mod providers;
 

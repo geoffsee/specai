@@ -4,16 +4,17 @@
 //! MLX provides local inference on Apple Silicon with an OpenAI-compatible server.
 
 use crate::agent::model::{
-    GenerationConfig, ModelProvider, ModelResponse, ProviderKind, ProviderMetadata, TokenUsage,
+    parse_thinking_tokens, GenerationConfig, ModelProvider, ModelResponse, ProviderKind,
+    ProviderMetadata, TokenUsage,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_openai::{
-    Client,
     config::OpenAIConfig,
     types::{
         ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
         ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
     },
+    Client,
 };
 use async_stream::stream;
 use async_trait::async_trait;
@@ -159,11 +160,14 @@ impl ModelProvider for MLXProvider {
             .first()
             .ok_or_else(|| anyhow!("No response choices returned"))?;
 
-        let content = choice
+        let raw_content = choice
             .message
             .content
             .clone()
             .ok_or_else(|| anyhow!("No content in response"))?;
+
+        // Parse thinking tokens if present
+        let (reasoning, content) = parse_thinking_tokens(&raw_content);
 
         let usage = response.usage.map(|u| TokenUsage {
             prompt_tokens: u.prompt_tokens,
@@ -176,6 +180,8 @@ impl ModelProvider for MLXProvider {
             model: response.model,
             usage,
             finish_reason: choice.finish_reason.as_ref().map(|r| format!("{:?}", r)),
+            tool_calls: None,
+            reasoning,
         })
     }
 
@@ -225,15 +231,45 @@ impl ModelProvider for MLXProvider {
             .map_err(|e| anyhow!("MLX streaming API error: {}", e))?;
 
         // Convert the OpenAI-compatible stream to our stream format
+        // Buffer to track if we're in a <think> block
         let stream = stream! {
             use futures::StreamExt;
+
+            let mut buffer = String::new();
+            let mut in_think_block = false;
+            let mut think_ended = false;
 
             while let Some(result) = response_stream.next().await {
                 match result {
                     Ok(response) => {
                         if let Some(choice) = response.choices.first() {
                             if let Some(content) = &choice.delta.content {
-                                yield Ok(content.clone());
+                                buffer.push_str(content);
+
+                                // Check if we're entering a think block
+                                if buffer.contains("<think>") && !in_think_block {
+                                    in_think_block = true;
+                                }
+
+                                // Check if we're exiting a think block
+                                if buffer.contains("</think>") && in_think_block {
+                                    in_think_block = false;
+                                    think_ended = true;
+                                    // Clear buffer up to and including </think>
+                                    if let Some(idx) = buffer.find("</think>") {
+                                        buffer = buffer[idx + "</think>".len()..].to_string();
+                                    }
+                                }
+
+                                // Only yield content if we're not in a think block and think has ended
+                                // or if we never encountered think tags
+                                if !in_think_block && (think_ended || !buffer.contains("<think>")) {
+                                    let output = buffer.clone();
+                                    buffer.clear();
+                                    if !output.is_empty() {
+                                        yield Ok(output);
+                                    }
+                                }
                             }
                         }
                     }
@@ -242,6 +278,11 @@ impl ModelProvider for MLXProvider {
                         break;
                     }
                 }
+            }
+
+            // Yield any remaining buffered content
+            if !buffer.is_empty() && !in_think_block {
+                yield Ok(buffer);
             }
         };
 
@@ -272,7 +313,10 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_mlx_provider_creation() {
         let provider = MLXProvider::new("mlx-community/Llama-3.2-3B-Instruct-4bit");
         assert_eq!(provider.model, "mlx-community/Llama-3.2-3B-Instruct-4bit");
@@ -280,7 +324,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_mlx_provider_with_custom_endpoint() {
         let provider = MLXProvider::with_endpoint(
             "http://192.168.1.100:8080",
@@ -290,14 +337,20 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_mlx_provider_with_model() {
         let provider = MLXProvider::new("model-1").with_model("model-2");
         assert_eq!(provider.model, "model-2");
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_mlx_provider_with_system_message() {
         let provider =
             MLXProvider::new("test-model").with_system_message("You are a helpful assistant.");
@@ -308,7 +361,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_mlx_provider_metadata() {
         let provider = MLXProvider::new("test-model");
         let metadata = provider.metadata();
@@ -319,14 +375,20 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_mlx_provider_kind() {
         let provider = MLXProvider::new("test-model");
         assert_eq!(provider.kind(), ProviderKind::MLX);
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_build_messages_without_system() {
         let provider = MLXProvider::new("test-model");
         let messages = provider.build_messages("Hello, world!").unwrap();
@@ -335,7 +397,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "system proxy APIs unavailable in sandbox")]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "system proxy APIs unavailable in sandbox"
+    )]
     fn test_build_messages_with_system() {
         let provider =
             MLXProvider::new("test-model").with_system_message("You are a helpful assistant.");

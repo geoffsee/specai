@@ -5,6 +5,7 @@ pub mod embeddings;
 pub mod persistence;
 pub mod plugin;
 pub mod policy;
+pub mod spec;
 pub mod test_utils;
 pub mod tools;
 pub mod types;
