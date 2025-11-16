@@ -345,6 +345,13 @@ impl Persistence {
         Ok(nodes)
     }
 
+    pub fn count_graph_nodes(&self, session_id: &str) -> Result<i64> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare("SELECT COUNT(*) FROM graph_nodes WHERE session_id = ?")?;
+        let count: i64 = stmt.query_row(params![session_id], |row| row.get(0))?;
+        Ok(count)
+    }
+
     pub fn update_graph_node(&self, node_id: i64, properties: &JsonValue) -> Result<()> {
         let conn = self.conn()?;
         conn.execute(
@@ -456,6 +463,13 @@ impl Persistence {
         };
 
         Ok(edges)
+    }
+
+    pub fn count_graph_edges(&self, session_id: &str) -> Result<i64> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare("SELECT COUNT(*) FROM graph_edges WHERE session_id = ?")?;
+        let count: i64 = stmt.query_row(params![session_id], |row| row.get(0))?;
+        Ok(count)
     }
 
     pub fn delete_graph_edge(&self, edge_id: i64) -> Result<()> {

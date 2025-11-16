@@ -133,6 +133,7 @@ pub struct CliState {
     pub registry: AgentRegistry,
     pub agent: AgentCore,
     pub reasoning_messages: Vec<String>,
+    pub status_message: String,
 }
 
 impl CliState {
@@ -183,6 +184,7 @@ impl CliState {
             registry,
             agent,
             reasoning_messages: vec!["Reasoning: idle".to_string()],
+            status_message: "Status: initializing".to_string(),
         })
     }
 
@@ -430,6 +432,7 @@ impl CliState {
         stdout.write_all(b"\nType /help for commands.\n").await?;
         stdout.flush().await?;
 
+        self.set_status_idle();
         loop {
             self.render_reasoning_prompt(&mut stdout).await?;
             line.clear();
@@ -437,6 +440,11 @@ impl CliState {
             if n == 0 {
                 break;
             } // EOF
+            let command_preview = parse_command(&line);
+            self.update_status_for_command(&command_preview);
+            if !matches!(command_preview, Command::Empty) {
+                self.render_status_line(&mut stdout).await?;
+            }
             if let Some(out) = self.handle_line(&line).await? {
                 if out == "__QUIT__" {
                     break;
@@ -447,6 +455,7 @@ impl CliState {
                 }
                 stdout.flush().await?;
             }
+            self.set_status_idle();
         }
         Ok(())
     }
@@ -526,6 +535,53 @@ impl CliState {
         lines
     }
 
+    fn set_status_idle(&mut self) {
+        self.status_message = "Status: awaiting input".to_string();
+    }
+
+    fn update_status_for_command(&mut self, command: &Command) {
+        self.status_message = Self::status_message_for_command(command);
+    }
+
+    fn status_message_for_command(command: &Command) -> String {
+        match command {
+            Command::Empty => "Status: awaiting input".to_string(),
+            Command::Help => "Status: showing help".to_string(),
+            Command::Quit => "Status: exiting".to_string(),
+            Command::ConfigReload => "Status: reloading configuration".to_string(),
+            Command::ConfigShow => "Status: displaying configuration".to_string(),
+            Command::PolicyReload => "Status: reloading policies".to_string(),
+            Command::SwitchAgent(name) => {
+                format!("Status: switching to agent '{}'", name)
+            }
+            Command::ListAgents => "Status: listing agents".to_string(),
+            Command::MemoryShow(Some(limit)) => {
+                format!("Status: showing last {} messages", limit)
+            }
+            Command::MemoryShow(None) => "Status: showing recent messages".to_string(),
+            Command::SessionNew(Some(id)) => {
+                format!("Status: starting session '{}'", id)
+            }
+            Command::SessionNew(None) => "Status: starting new session".to_string(),
+            Command::SessionList => "Status: listing sessions".to_string(),
+            Command::SessionSwitch(id) => {
+                format!("Status: switching to session '{}'", id)
+            }
+            Command::GraphEnable => "Status: showing graph enable instructions".to_string(),
+            Command::GraphDisable => "Status: showing graph disable instructions".to_string(),
+            Command::GraphStatus => "Status: showing graph status".to_string(),
+            Command::GraphShow(Some(limit)) => {
+                format!("Status: inspecting graph (limit {})", limit)
+            }
+            Command::GraphShow(None) => "Status: inspecting graph".to_string(),
+            Command::GraphClear => "Status: clearing session graph".to_string(),
+            Command::RunSpec(path) => {
+                format!("Status: executing spec '{}'", path.display())
+            }
+            Command::Message(_) => "Status: running agent step".to_string(),
+        }
+    }
+
     fn pad_line_to_width(line: &str, width: usize) -> String {
         if width == 0 {
             return String::new();
@@ -553,6 +609,10 @@ impl CliState {
             .collect()
     }
 
+    fn status_display_line(&self, width: usize) -> String {
+        Self::pad_line_to_width(&self.status_message, width)
+    }
+
     fn input_display_width(&self) -> usize {
         let terminal_width = terminal_size().map(|(w, _)| w.0 as usize).unwrap_or(80);
         let prompt_len = self.config.ui.prompt.chars().count();
@@ -570,7 +630,19 @@ impl CliState {
             stdout.write_all(b"\n").await?;
         }
         stdout.write_all(b"\n").await?;
+        let status_line = self.status_display_line(width);
+        stdout.write_all(status_line.as_bytes()).await?;
+        stdout.write_all(b"\n").await?;
         stdout.write_all(self.config.ui.prompt.as_bytes()).await?;
+        stdout.flush().await?;
+        Ok(())
+    }
+
+    async fn render_status_line(&self, stdout: &mut io::Stdout) -> Result<()> {
+        let width = self.input_display_width();
+        let status_line = self.status_display_line(width);
+        stdout.write_all(status_line.as_bytes()).await?;
+        stdout.write_all(b"\n").await?;
         stdout.flush().await?;
         Ok(())
     }
@@ -639,6 +711,7 @@ mod tests {
             next_action: None,
             reasoning: None,
             reasoning_summary: None,
+            graph_debug: None,
         };
         let lines = CliState::format_reasoning_messages(&output);
         assert_eq!(
@@ -678,6 +751,7 @@ mod tests {
             next_action: None,
             reasoning: None,
             reasoning_summary: None,
+            graph_debug: None,
         };
         let lines = CliState::format_reasoning_messages(&output);
         assert!(lines[0].starts_with("Recall: semantic"));
@@ -703,6 +777,7 @@ mod tests {
             next_action: None,
             reasoning: None,
             reasoning_summary: None,
+            graph_debug: None,
         };
         let lines = CliState::format_reasoning_messages(&output);
         assert_eq!(lines[2], "Tokens: P 4 C 6 T 10");

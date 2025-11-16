@@ -241,6 +241,52 @@ pub fn render_run_stats(output: &AgentOutput, show_reasoning: bool) -> Option<St
         sections.push(section);
     }
 
+    if let Some(graph_debug) = &output.graph_debug {
+        let mut section = String::from("## Graph Debug\n");
+        section.push_str(&format!(
+            "- Enabled: {}\n- Memory: {}\n- Auto Build: {}\n- Steering: {}\n",
+            if graph_debug.enabled { "yes" } else { "no" },
+            if graph_debug.graph_memory_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            },
+            if graph_debug.auto_graph_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            },
+            if graph_debug.graph_steering_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        ));
+
+        if graph_debug.enabled {
+            section.push_str(&format!(
+                "- Node Count: {}\n- Edge Count: {}\n",
+                graph_debug.node_count, graph_debug.edge_count
+            ));
+
+            if graph_debug.recent_nodes.is_empty() {
+                section.push_str("- Recent Nodes: none recorded yet\n");
+            } else {
+                section.push_str("- Recent Nodes:\n");
+                for node in &graph_debug.recent_nodes {
+                    section.push_str(&format!(
+                        "  - #{} [{}] {}\n",
+                        node.id, node.node_type, node.label
+                    ));
+                }
+            }
+        } else {
+            section.push_str("- Graph disabled; skipping node snapshot\n");
+        }
+
+        sections.push(section);
+    }
+
     // Display reasoning summary if enabled and available
     if show_reasoning {
         // Display reasoning summary if available (more user-friendly)

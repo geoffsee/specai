@@ -49,6 +49,29 @@ pub struct AgentOutput {
     /// Human-readable summary of the reasoning (if reasoning was present)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_summary: Option<String>,
+    /// Snapshot of graph state for debugging purposes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_debug: Option<GraphDebugInfo>,
+}
+
+/// Minimal snapshot of a recent graph node for debugging output
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphDebugNode {
+    pub id: i64,
+    pub node_type: String,
+    pub label: String,
+}
+
+/// Debug information about the graph state captured for run stats
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphDebugInfo {
+    pub enabled: bool,
+    pub graph_memory_enabled: bool,
+    pub auto_graph_enabled: bool,
+    pub graph_steering_enabled: bool,
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub recent_nodes: Vec<GraphDebugNode>,
 }
 
 /// A single tool invocation, including arguments and outcome metadata
@@ -516,6 +539,14 @@ impl AgentCore {
             });
         }
 
+        let graph_debug = match self.snapshot_graph_debug_info() {
+            Ok(info) => Some(info),
+            Err(err) => {
+                warn!("Failed to capture graph debug info: {}", err);
+                None
+            }
+        };
+
         Ok(AgentOutput {
             response: final_response,
             response_message_id: Some(response_message_id),
@@ -527,6 +558,7 @@ impl AgentCore {
             next_action: next_action_recommendation,
             reasoning,
             reasoning_summary,
+            graph_debug,
         })
     }
 
@@ -573,6 +605,39 @@ impl AgentCore {
             frequency_penalty: None,
             presence_penalty: None,
         }
+    }
+
+    fn snapshot_graph_debug_info(&self) -> Result<GraphDebugInfo> {
+        let mut info = GraphDebugInfo {
+            enabled: self.profile.enable_graph,
+            graph_memory_enabled: self.profile.graph_memory,
+            auto_graph_enabled: self.profile.auto_graph,
+            graph_steering_enabled: self.profile.graph_steering,
+            node_count: 0,
+            edge_count: 0,
+            recent_nodes: Vec::new(),
+        };
+
+        if !self.profile.enable_graph {
+            return Ok(info);
+        }
+
+        info.node_count = self.persistence.count_graph_nodes(&self.session_id)?.max(0) as usize;
+        info.edge_count = self.persistence.count_graph_edges(&self.session_id)?.max(0) as usize;
+
+        let recent_nodes = self
+            .persistence
+            .list_graph_nodes(&self.session_id, None, Some(5))?;
+        info.recent_nodes = recent_nodes
+            .into_iter()
+            .map(|node| GraphDebugNode {
+                id: node.id,
+                node_type: node.node_type.as_str().to_string(),
+                label: node.label,
+            })
+            .collect();
+
+        Ok(info)
     }
 
     /// Summarize reasoning using the fast model
