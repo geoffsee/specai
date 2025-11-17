@@ -1,10 +1,10 @@
+use serde_json::json;
 use spec_ai::agent::AgentBuilder;
 use spec_ai::config::{AgentProfile, AppConfig, AudioConfig};
 use spec_ai::persistence::Persistence;
 use spec_ai::tools::builtin::AudioTranscriptionTool;
 use spec_ai::tools::{Tool, ToolRegistry};
 use spec_ai::types::MessageRole;
-use serde_json::json;
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -149,7 +149,11 @@ async fn test_different_scenarios() {
         assert_eq!(output["scenario"], scenario);
 
         let transcriptions = output["transcriptions"].as_array().unwrap();
-        assert!(!transcriptions.is_empty(), "No transcriptions for scenario: {}", scenario);
+        assert!(
+            !transcriptions.is_empty(),
+            "No transcriptions for scenario: {}",
+            scenario
+        );
     }
 }
 
@@ -216,7 +220,9 @@ async fn test_audio_with_agent_integration() {
     registry.set_active("audio_agent").unwrap();
 
     // Create agent using the builder
-    let agent = AgentBuilder::new_with_registry(&registry, &config, Some("test-audio-session".to_string())).unwrap();
+    let agent =
+        AgentBuilder::new_with_registry(&registry, &config, Some("test-audio-session".to_string()))
+            .unwrap();
 
     // Verify the agent has access to audio_transcribe tool
     let tools = agent.tool_registry();
@@ -251,8 +257,12 @@ async fn test_transcription_event_formatting() {
     let full_text = transcription_text.join(" ");
 
     // Noisy environment should have noise markers
-    assert!(full_text.contains("[NOISE:") || full_text.contains("[PARTIAL]") || full_text.contains("[FINAL]"),
-            "Should contain noise or partial transcription markers");
+    assert!(
+        full_text.contains("[NOISE:")
+            || full_text.contains("[PARTIAL]")
+            || full_text.contains("[FINAL]"),
+        "Should contain noise or partial transcription markers"
+    );
 }
 
 #[tokio::test]
@@ -276,5 +286,9 @@ async fn test_speed_multiplier() {
     let elapsed = start.elapsed();
 
     // With 10000x speed multiplier, 2 seconds should complete in well under 1 second
-    assert!(elapsed.as_secs() < 1, "Speed multiplier didn't work as expected, took {:?}", elapsed);
+    assert!(
+        elapsed.as_secs() < 1,
+        "Speed multiplier didn't work as expected, took {:?}",
+        elapsed
+    );
 }

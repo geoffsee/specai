@@ -46,6 +46,7 @@ top_p = 0.9
 # Explicitly allow tools for code generation
 allowed_tools = [
     "file_write",
+    "file_extract",
     "file_read",
     "bash",
     "shell",

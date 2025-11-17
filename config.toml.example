@@ -100,7 +100,7 @@ show_reasoning = false  # Default: false
 prompt = "You are a helpful coding assistant. You write clean, well-documented code and follow best practices."
 style = "professional"
 temperature = 0.3
-allowed_tools = ["file_read", "file_write", "bash", "search"]
+allowed_tools = ["file_read", "file_write", "bash", "search", "file_extract"]
 memory_k = 25
 
 # Use graph for code structure tracking

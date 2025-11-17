@@ -23,24 +23,13 @@ pub enum TranscriptionEvent {
         speaker: Option<String>,
     },
     /// Background noise or non-speech audio
-    Noise {
-        description: String,
-        intensity: f32,
-    },
+    Noise { description: String, intensity: f32 },
     /// Emotional or tonal context
-    Tone {
-        emotion: String,
-        text: String,
-    },
+    Tone { emotion: String, text: String },
     /// Partial/incomplete transcription
-    Partial {
-        text: String,
-        is_final: bool,
-    },
+    Partial { text: String, is_final: bool },
     /// System events (start/stop listening)
-    System {
-        message: String,
-    },
+    System { message: String },
 }
 
 /// Predefined mock scenarios for testing
@@ -366,9 +355,8 @@ impl AudioTranscriptionTool {
                 let (event, delay) = scenario.events[index].clone();
 
                 // Apply speed multiplier to delay
-                let adjusted_delay = Duration::from_millis(
-                    (delay.as_millis() as f32 * speed_multiplier) as u64
-                );
+                let adjusted_delay =
+                    Duration::from_millis((delay.as_millis() as f32 * speed_multiplier) as u64);
 
                 // Wait before emitting the event
                 time::sleep(adjusted_delay).await;
@@ -387,7 +375,12 @@ impl AudioTranscriptionTool {
                 speaker,
             } => {
                 if let Some(speaker) = speaker {
-                    format!("[{}] {} (confidence: {:.1}%)", speaker, text, confidence * 100.0)
+                    format!(
+                        "[{}] {} (confidence: {:.1}%)",
+                        speaker,
+                        text,
+                        confidence * 100.0
+                    )
                 } else {
                     format!("{} (confidence: {:.1}%)", text, confidence * 100.0)
                 }
@@ -415,23 +408,20 @@ impl AudioTranscriptionTool {
     }
 
     /// Store transcription event in database
-    async fn persist_event(
-        &self,
-        session_id: &str,
-        event: &TranscriptionEvent,
-    ) -> Result<()> {
+    async fn persist_event(&self, session_id: &str, event: &TranscriptionEvent) -> Result<()> {
         if let Some(persistence) = &self.persistence {
             let formatted = self.format_event(event);
 
             // Store as a user message
-            persistence.insert_message(
-                session_id,
-                MessageRole::User,
-                &formatted,
-            )?;
+            persistence.insert_message(session_id, MessageRole::User, &formatted)?;
 
             // Optionally store metadata as graph nodes
-            if let TranscriptionEvent::Speech { text: _, speaker: _, confidence: _ } = event {
+            if let TranscriptionEvent::Speech {
+                text: _,
+                speaker: _,
+                confidence: _,
+            } = event
+            {
                 // Could create graph nodes for entities, speakers, etc.
                 // This is where we'd integrate with the knowledge graph
                 // For now, we'll just log the transcription
@@ -508,14 +498,9 @@ impl Tool for AudioTranscriptionTool {
 
         let duration = args["duration"].as_u64().or(Some(30));
 
-        let mode = args["mode"]
-            .as_str()
-            .unwrap_or("stream")
-            .to_string();
+        let mode = args["mode"].as_str().unwrap_or("stream").to_string();
 
-        let speed_multiplier = args["speed_multiplier"]
-            .as_f64()
-            .unwrap_or(1.0) as f32;
+        let speed_multiplier = args["speed_multiplier"].as_f64().unwrap_or(1.0) as f32;
 
         let persist = args["persist"].as_bool().unwrap_or(true);
 

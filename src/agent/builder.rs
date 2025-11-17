@@ -347,7 +347,9 @@ fn build_mlx_embeddings_client(model_name: &str) -> EmbeddingsClient {
 mod tests {
     use super::*;
     use crate::agent::providers::MockProvider;
-    use crate::config::{AgentProfile, AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
+    use crate::config::{
+        AgentProfile, AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig,
+    };
     use std::collections::HashMap;
     use tempfile::tempdir;
 

@@ -41,6 +41,7 @@ async-openai = "0.30.1"
 termimad = "0.30"
 crossterm = "0.28"
 terminal_size = "0.4"
+extractous = "0.3.0"
 
 [features]
 default = ["openai", "mlx"]

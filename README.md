@@ -8,6 +8,29 @@ An agentic AI CLI tool written in Rust.
 cargo binstall spec-ai
 ```
 
+## Native dependencies
+
+`file_extract` depends on [`extractous`](https://docs.rs/extractous/latest/extractous), which compiles native Apache Tika libraries through GraalVM and optionally calls Tesseract for OCR. Install the following before invoking `file_extract` or running `cargo test file_extract`:
+
+1. **GraalVM 23+ with native-image support**
+   * Use [sdkman](https://sdkman.io) to install a compatible JDK:
+     ```bash
+     sdk install java 23.0.1-graalce    # Linux
+     sdk install java 24.1.1.r23-nik    # macOS (Bellsoft Liberica NIK avoids AWT issues)
+     ```
+   * If you already have GraalVM, set `GRAALVM_HOME` to its installation root before building.
+   * Confirm the active JVM by running `java -version`; it should report `GraalVM`.
+
+2. **Tesseract OCR and language packs (optional but required for OCR PDFs)**
+   * Debian/Ubuntu: `sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-ara`
+   * macOS: `brew install tesseract tesseract-lang`
+
+3. **Other build prerequisites**
+   * The extractous build script may also require `pkg-config`, `cmake`, or other native toolchain utilities depending on your platform.
+   * If you hit `system-configuration` / `reqwest` panics such as `Attempted to create a NULL object`, ensure your macOS SDK/frameworks are intact for CoreFoundation and run the build again after setting `GRAALVM_HOME`.
+
+Once the native prerequisites are installed, rerun `cargo clean && cargo test file_extract`; the initial build can take two-to-three minutes while the Tika native libs compile.
+
 ### Installation
 
 ```bash
@@ -128,7 +151,7 @@ Define multiple agents with different personalities and capabilities:
 [agents.coder]
 prompt = "You are a helpful coding assistant"
 temperature = 0.3
-allowed_tools = ["file_read", "file_write", "bash"]
+allowed_tools = ["file_read", "file_write", "bash", "file_extract"]
 memory_k = 10
 
 [agents.researcher]

@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use self::builtin::{
-    AudioTranscriptionTool, BashTool, EchoTool, FileReadTool, FileWriteTool, GraphTool, MathTool,
-    SearchTool, ShellTool, WebSearchTool,
+    AudioTranscriptionTool, BashTool, EchoTool, FileExtractTool, FileReadTool, FileWriteTool,
+    GraphTool, MathTool, SearchTool, ShellTool, WebSearchTool,
 };
 use crate::persistence::Persistence;
 
@@ -87,6 +87,7 @@ impl ToolRegistry {
         registry.register(Arc::new(EchoTool::new()));
         registry.register(Arc::new(MathTool::new()));
         registry.register(Arc::new(FileReadTool::new()));
+        registry.register(Arc::new(FileExtractTool::new()));
         registry.register(Arc::new(FileWriteTool::new()));
         registry.register(Arc::new(SearchTool::new()));
         registry.register(Arc::new(BashTool::new()));
@@ -95,7 +96,9 @@ impl ToolRegistry {
 
         if let Some(persistence) = persistence {
             registry.register(Arc::new(GraphTool::new(persistence.clone())));
-            registry.register(Arc::new(AudioTranscriptionTool::with_persistence(persistence)));
+            registry.register(Arc::new(AudioTranscriptionTool::with_persistence(
+                persistence,
+            )));
         } else {
             registry.register(Arc::new(AudioTranscriptionTool::new()));
         }

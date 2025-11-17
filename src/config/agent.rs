@@ -298,7 +298,7 @@ impl Default for AgentProfile {
             fast_model_temperature: Self::default_fast_temperature(),
             fast_model_tasks: Self::default_fast_tasks(),
             escalation_threshold: Self::default_escalation_threshold(),
-            show_reasoning: false, // Disabled by default
+            show_reasoning: false,             // Disabled by default
             enable_audio_transcription: false, // Disabled by default
             audio_response_mode: Self::default_audio_response_mode(),
             audio_scenario: None,

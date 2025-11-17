@@ -1,6 +1,7 @@
 pub mod audio_transcription;
 pub mod bash;
 pub mod echo;
+pub mod file_extract;
 pub mod file_read;
 pub mod file_write;
 pub mod graph;
@@ -12,6 +13,7 @@ pub mod web_search;
 pub use audio_transcription::AudioTranscriptionTool;
 pub use bash::BashTool;
 pub use echo::EchoTool;
+pub use file_extract::FileExtractTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
 pub use graph::GraphTool;
