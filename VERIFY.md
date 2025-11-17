@@ -2,10 +2,6 @@
 
 Use these natural conversational turns when you manually exercise each built-in tool. Persistence is only required for the graph and audio transcription entries.
 
-### Setup
-Human: I'm bringing up the tool registry now and I’ll enable persistence whenever we need it. Good to go?
-Assistant: Ready when you are—same registry for everything below.
-
 ---
 
 ### Echo
