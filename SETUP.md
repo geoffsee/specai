@@ -47,7 +47,7 @@ Find the GraalVM installation path:
 
 Example output:
 ```
-/Users/williamseemueller/Library/Java/JavaVirtualMachines/graalvm-ce-24.0.0/Contents/Home
+/Users/geoffsee/Library/Java/JavaVirtualMachines/graalvm-ce-24.0.0/Contents/Home
 ```
 
 ## Step 3: Set GRAALVM_HOME Environment Variable
@@ -55,7 +55,7 @@ Example output:
 #### For Current Session
 
 ```bash
-export GRAALVM_HOME="/Users/williamseemueller/Library/Java/JavaVirtualMachines/graalvm-ce-24.0.0/Contents/Home"
+export GRAALVM_HOME="/Users/geoffsee/Library/Java/JavaVirtualMachines/graalvm-ce-24.0.0/Contents/Home"
 ```
 
 #### For Persistence (zsh)
@@ -63,7 +63,7 @@ export GRAALVM_HOME="/Users/williamseemueller/Library/Java/JavaVirtualMachines/g
 Add to `~/.zshrc`:
 
 ```bash
-echo 'export GRAALVM_HOME="/Users/williamseemueller/Library/Java/JavaVirtualMachines/graalvm-ce-24.0.0/Contents/Home"' >> ~/.zshrc
+echo 'export GRAALVM_HOME="/Users/geoffsee/Library/Java/JavaVirtualMachines/graalvm-ce-24.0.0/Contents/Home"' >> ~/.zshrc
 ```
 
 #### For Persistence (bash)
@@ -71,7 +71,7 @@ echo 'export GRAALVM_HOME="/Users/williamseemueller/Library/Java/JavaVirtualMach
 Add to `~/.bash_profile` or `~/.bashrc`:
 
 ```bash
-echo 'export GRAALVM_HOME="/Users/williamseemueller/Library/Java/JavaVirtualMachines/graalvm-ce-24.0.0/Contents/Home"' >> ~/.bash_profile
+echo 'export GRAALVM_HOME="/Users/geoffsee/Library/Java/JavaVirtualMachines/graalvm-ce-24.0.0/Contents/Home"' >> ~/.bash_profile
 ```
 
 #### Verify
