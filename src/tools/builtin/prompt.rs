@@ -1016,6 +1016,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_prompt_user_missing_prefill_fails_when_noninteractive() {
+        // Skip this test if running in an interactive terminal
+        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            eprintln!("Skipping test: running in interactive terminal");
+            return;
+        }
+
         let tool = PromptUserTool::new();
         let args = json!({
             "prompt": "Need manual input",
