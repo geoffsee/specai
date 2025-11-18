@@ -10,7 +10,7 @@ path = "~/.agent_cli/agent_data.duckdb"
 
 # Model provider configuration
 [model]
-provider = "openai"  # Options: "openai", "anthropic", "ollama", "mlx", "mock"
+provider = "openai"  # Options: "openai", "anthropic", "ollama", "mlx", "lmstudio", "mock"
 # model_name = "gpt-4"  # Optional override
 embeddings_model = "text-embedding-ada-002"  # For semantic search
 

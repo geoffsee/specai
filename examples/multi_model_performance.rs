@@ -27,10 +27,10 @@ async fn main() -> Result<()> {
         temperature: 0.7,
     };
 
-    // Configure fast model (Llama-3.2-3B via MLX)
+    // Configure fast model (Llama-3.2-3B via LM Studio)
     let fast_model_config = ModelConfig {
-        provider: "mock".to_string(), // Change to "mlx" for real usage
-        model_name: Some("mlx-community/Llama-3.2-3B-Instruct-4bit".to_string()),
+        provider: "mock".to_string(), // Change to "lmstudio" for real usage
+        model_name: Some("lmstudio-community/Llama-3.2-3B-Instruct".to_string()),
         embeddings_model: None,
         api_key_source: None,
         temperature: 0.3,
@@ -68,8 +68,8 @@ async fn main() -> Result<()> {
 
         // Multi-model configuration
         fast_reasoning: true,
-        fast_model_provider: Some("mlx".to_string()),
-        fast_model_name: Some("mlx-community/Llama-3.2-3B-Instruct-4bit".to_string()),
+        fast_model_provider: Some("lmstudio".to_string()),
+        fast_model_name: Some("lmstudio-community/Llama-3.2-3B-Instruct".to_string()),
         fast_model_temperature: 0.3,
         fast_model_tasks: vec![
             "entity_extraction".to_string(),
@@ -80,6 +80,9 @@ async fn main() -> Result<()> {
         ],
         escalation_threshold: 0.6, // Escalate if confidence < 60%
         show_reasoning: true,
+        enable_audio_transcription: false,
+        audio_response_mode: "immediate".to_string(),
+        audio_scenario: None,
     };
 
     // Build agent with fast model provider

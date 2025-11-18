@@ -147,6 +147,8 @@ pub enum ProviderKind {
     Ollama,
     #[cfg(feature = "mlx")]
     MLX,
+    #[cfg(feature = "lmstudio")]
+    LMStudio,
 }
 
 impl ProviderKind {
@@ -161,6 +163,8 @@ impl ProviderKind {
             "ollama" => Some(ProviderKind::Ollama),
             #[cfg(feature = "mlx")]
             "mlx" => Some(ProviderKind::MLX),
+            #[cfg(feature = "lmstudio")]
+            "lmstudio" => Some(ProviderKind::LMStudio),
             _ => None,
         }
     }
@@ -176,6 +180,8 @@ impl ProviderKind {
             ProviderKind::Ollama => "ollama",
             #[cfg(feature = "mlx")]
             ProviderKind::MLX => "mlx",
+            #[cfg(feature = "lmstudio")]
+            ProviderKind::LMStudio => "lmstudio",
         }
     }
 }

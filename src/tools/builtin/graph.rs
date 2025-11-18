@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::persistence::Persistence;
@@ -26,7 +27,8 @@ impl Tool for GraphTool {
     fn description(&self) -> &str {
         "Create, query, and traverse knowledge graphs. Supports operations: \
          create_node, create_edge, delete_node, delete_edge, get_node, get_edge, \
-         list_nodes, list_edges, find_path, traverse_neighbors"
+         list_nodes, list_edges, find_path, traverse_neighbors, update_node, \
+         node_degree, list_hubs"
     }
 
     fn parameters(&self) -> Value {
@@ -38,7 +40,8 @@ impl Tool for GraphTool {
                     "enum": [
                         "create_node", "create_edge", "delete_node", "delete_edge",
                         "get_node", "get_edge", "list_nodes", "list_edges",
-                        "find_path", "traverse_neighbors", "update_node"
+                        "find_path", "traverse_neighbors", "update_node",
+                        "node_degree", "list_hubs"
                     ],
                     "description": "The graph operation to perform"
                 },
@@ -100,7 +103,7 @@ impl Tool for GraphTool {
                     "type": "string",
                     "enum": ["outgoing", "incoming", "both"],
                     "default": "outgoing",
-                    "description": "Direction for traversal operations"
+                    "description": "Direction for traversal and degree-based operations"
                 },
                 "depth": {
                     "type": "integer",
@@ -122,6 +125,12 @@ impl Tool for GraphTool {
                     "minimum": 1,
                     "maximum": 1000,
                     "description": "Limit for list operations"
+                },
+                "min_degree": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 0,
+                    "description": "Minimum degree threshold when listing hubs"
                 }
             },
             "required": ["operation", "session_id"]
@@ -328,6 +337,71 @@ impl Tool for GraphTool {
                 Ok(ToolResult::success(format!("Updated node {}", node_id)))
             }
 
+            "node_degree" => {
+                let node_id = args["node_id"]
+                    .as_i64()
+                    .context("node_id is required for node_degree")?;
+                let edge_type_filter = args["edge_type"].as_str().map(EdgeType::from_str);
+                let session_id = session_id.to_string();
+
+                let (in_degree, out_degree, by_type) = tokio::task::spawn_blocking(move || {
+                    let edges = persistence.list_graph_edges(&session_id, None, None)?;
+                    let mut in_degree: i64 = 0;
+                    let mut out_degree: i64 = 0;
+                    let mut by_type: HashMap<String, (i64, i64)> = HashMap::new();
+
+                    for edge in edges {
+                        if let Some(ref filter) = edge_type_filter {
+                            if &edge.edge_type != filter {
+                                continue;
+                            }
+                        }
+
+                        let key = edge.edge_type.as_str();
+
+                        if edge.source_id == node_id {
+                            out_degree += 1;
+                            let entry = by_type.entry(key.clone()).or_insert((0, 0));
+                            entry.1 += 1;
+                        }
+                        if edge.target_id == node_id {
+                            in_degree += 1;
+                            let entry = by_type.entry(key.clone()).or_insert((0, 0));
+                            entry.0 += 1;
+                        }
+                    }
+
+                    Ok::<_, anyhow::Error>((in_degree, out_degree, by_type))
+                })
+                .await
+                .context("task join error")??;
+
+                let total_degree = in_degree + out_degree;
+
+                let mut by_type_json = Map::new();
+                for (edge_type, (in_d, out_d)) in by_type {
+                    by_type_json.insert(
+                        edge_type,
+                        json!({
+                            "in_degree": in_d,
+                            "out_degree": out_d,
+                            "total_degree": in_d + out_d
+                        }),
+                    );
+                }
+
+                Ok(ToolResult::success(
+                    json!({
+                        "node_id": node_id,
+                        "in_degree": in_degree,
+                        "out_degree": out_degree,
+                        "total_degree": total_degree,
+                        "by_edge_type": by_type_json
+                    })
+                    .to_string(),
+                ))
+            }
+
             "find_path" => {
                 let source_id = args["source_id"]
                     .as_i64()
@@ -389,6 +463,118 @@ impl Tool for GraphTool {
                     json!({
                         "count": result.len(),
                         "neighbors": result
+                    })
+                    .to_string(),
+                ))
+            }
+
+            "list_hubs" => {
+                let direction = args["direction"]
+                    .as_str()
+                    .map(|d| match d {
+                        "incoming" => TraversalDirection::Incoming,
+                        "both" => TraversalDirection::Both,
+                        _ => TraversalDirection::Outgoing,
+                    })
+                    .unwrap_or(TraversalDirection::Outgoing);
+                let min_degree = args["min_degree"].as_i64().unwrap_or(1).max(0);
+                let limit = args["limit"].as_i64().unwrap_or(10).max(1);
+                let edge_type_filter = args["edge_type"].as_str().map(EdgeType::from_str);
+                let session_id = session_id.to_string();
+
+                let hubs = tokio::task::spawn_blocking(move || {
+                    let edges = persistence.list_graph_edges(&session_id, None, None)?;
+                    let mut degrees: HashMap<i64, (i64, i64)> = HashMap::new();
+
+                    for edge in edges {
+                        if let Some(ref filter) = edge_type_filter {
+                            if &edge.edge_type != filter {
+                                continue;
+                            }
+                        }
+
+                        // out-degree for source
+                        {
+                            let entry = degrees.entry(edge.source_id).or_insert((0, 0));
+                            entry.1 += 1;
+                        }
+                        // in-degree for target
+                        {
+                            let entry = degrees.entry(edge.target_id).or_insert((0, 0));
+                            entry.0 += 1;
+                        }
+                    }
+
+                    // Convert to vector and filter by min_degree and direction
+                    let mut nodes_with_degree: Vec<(i64, i64, i64, i64)> = degrees
+                        .into_iter()
+                        .map(|(node_id, (in_d, out_d))| {
+                            let total = in_d + out_d;
+                            (node_id, in_d, out_d, total)
+                        })
+                        .filter(|(_, in_d, out_d, total)| {
+                            let score = match direction {
+                                TraversalDirection::Incoming => *in_d,
+                                TraversalDirection::Outgoing => *out_d,
+                                TraversalDirection::Both => *total,
+                            };
+                            score >= min_degree
+                        })
+                        .collect();
+
+                    nodes_with_degree.sort_by(|a, b| {
+                        let score_a = match direction {
+                            TraversalDirection::Incoming => a.1,
+                            TraversalDirection::Outgoing => a.2,
+                            TraversalDirection::Both => a.3,
+                        };
+                        let score_b = match direction {
+                            TraversalDirection::Incoming => b.1,
+                            TraversalDirection::Outgoing => b.2,
+                            TraversalDirection::Both => b.3,
+                        };
+                        score_b.cmp(&score_a).then_with(|| a.0.cmp(&b.0))
+                    });
+
+                    nodes_with_degree.truncate(limit as usize);
+
+                    // Fetch node details for the selected hubs
+                    let mut result = Vec::new();
+                    for (node_id, in_d, out_d, total) in nodes_with_degree {
+                        if let Some(node) = persistence.get_graph_node(node_id)? {
+                            result.push((node, in_d, out_d, total));
+                        }
+                    }
+
+                    Ok::<_, anyhow::Error>(result)
+                })
+                .await
+                .context("task join error")??;
+
+                let hubs_json: Vec<Value> = hubs
+                    .into_iter()
+                    .map(|(node, in_d, out_d, total)| {
+                        json!({
+                            "node": node,
+                            "in_degree": in_d,
+                            "out_degree": out_d,
+                            "total_degree": total
+                        })
+                    })
+                    .collect();
+
+                let direction_str = match direction {
+                    TraversalDirection::Incoming => "incoming",
+                    TraversalDirection::Outgoing => "outgoing",
+                    TraversalDirection::Both => "both",
+                };
+
+                Ok(ToolResult::success(
+                    json!({
+                        "direction": direction_str,
+                        "min_degree": min_degree,
+                        "count": hubs_json.len(),
+                        "hubs": hubs_json
                     })
                     .to_string(),
                 ))

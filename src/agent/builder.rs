@@ -7,13 +7,17 @@ use crate::agent::factory::{create_provider, resolve_api_key};
 use crate::agent::model::{ModelProvider, ProviderKind};
 #[cfg(feature = "openai")]
 use crate::agent::providers::openai::OpenAIProvider;
+#[cfg(feature = "lmstudio")]
+use crate::agent::providers::LMStudioProvider;
+#[cfg(feature = "mlx")]
+use crate::agent::providers::MLXProvider;
 use crate::config::{AgentProfile, AgentRegistry, AppConfig, ModelConfig};
 use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
 use crate::policy::PolicyEngine;
 use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Context, Result};
-#[cfg(feature = "mlx")]
+#[cfg(any(feature = "mlx", feature = "lmstudio"))]
 use async_openai::config::OpenAIConfig;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -144,7 +148,7 @@ impl AgentBuilder {
             Arc::new(registry)
         });
 
-        // Get or create provider with tools configured (for OpenAI)
+        // Get or create provider with tools configured (for OpenAI-compatible providers)
         let provider = if let Some(provider) = self.provider {
             provider
         } else if let Some(ref config) = self.config {
@@ -155,11 +159,11 @@ impl AgentBuilder {
             #[cfg(feature = "openai")]
             {
                 if base_provider.kind() == ProviderKind::OpenAI {
-                    let openai_tools = tool_registry.to_openai_tools();
-                    if !openai_tools.is_empty() {
+                    let tools = tool_registry.to_openai_tools();
+                    if !tools.is_empty() {
                         info!(
                             "Configuring OpenAI provider with {} tools for native function calling",
-                            openai_tools.len()
+                            tools.len()
                         );
 
                         // Recreate OpenAI provider with tools
@@ -179,7 +183,70 @@ impl AgentBuilder {
                         }
 
                         // Configure with tools and cast to trait object
-                        base_provider = Arc::new(openai_provider.with_tools(openai_tools));
+                        base_provider = Arc::new(openai_provider.with_tools(tools));
+                    }
+                }
+            }
+
+            // Configure MLX provider with tools for native function calling (OpenAI-compatible API)
+            #[cfg(feature = "mlx")]
+            {
+                if base_provider.kind() == ProviderKind::MLX {
+                    let tools = tool_registry.to_openai_tools();
+                    if !tools.is_empty() {
+                        info!(
+                            "Configuring MLX provider with {} tools for native function calling",
+                            tools.len()
+                        );
+
+                        // MLX requires a model name; mirror create_provider's behavior
+                        let model_name = config
+                            .model
+                            .model_name
+                            .as_ref()
+                            .ok_or_else(|| {
+                                anyhow!("MLX provider requires a model_name to be specified")
+                            })?
+                            .clone();
+
+                        let mlx_provider = if let Ok(endpoint) = std::env::var("MLX_ENDPOINT") {
+                            MLXProvider::with_endpoint(endpoint, model_name)
+                        } else {
+                            MLXProvider::new(model_name)
+                        };
+
+                        base_provider = Arc::new(mlx_provider.with_tools(tools));
+                    }
+                }
+            }
+
+            #[cfg(feature = "lmstudio")]
+            {
+                if base_provider.kind() == ProviderKind::LMStudio {
+                    let tools = tool_registry.to_openai_tools();
+                    if !tools.is_empty() {
+                        info!(
+                            "Configuring LM Studio provider with {} tools for native function calling",
+                            tools.len()
+                        );
+
+                        let model_name = config
+                            .model
+                            .model_name
+                            .as_ref()
+                            .ok_or_else(|| {
+                                anyhow!("LM Studio provider requires a model_name to be specified")
+                            })?
+                            .clone();
+
+                        let lmstudio_provider =
+                            if let Ok(endpoint) = std::env::var("LMSTUDIO_ENDPOINT") {
+                                LMStudioProvider::with_endpoint(endpoint, model_name)
+                            } else {
+                                LMStudioProvider::new(model_name)
+                            };
+
+                        base_provider = Arc::new(lmstudio_provider.with_tools(tools));
                     }
                 }
             }
@@ -316,6 +383,13 @@ fn create_embeddings_client_from_config(config: &AppConfig) -> Result<Option<Emb
         }
     }
 
+    #[cfg(feature = "lmstudio")]
+    {
+        if ProviderKind::from_str(&model.provider) == Some(ProviderKind::LMStudio) {
+            return Ok(Some(build_lmstudio_embeddings_client(model_name)));
+        }
+    }
+
     let client = if let Some(source) = &model.api_key_source {
         let api_key = resolve_api_key(source)?;
         EmbeddingsClient::with_api_key(model_name.clone(), api_key)
@@ -343,11 +417,30 @@ fn build_mlx_embeddings_client(model_name: &str) -> EmbeddingsClient {
     EmbeddingsClient::with_config(model_name.to_string(), config)
 }
 
+#[cfg(feature = "lmstudio")]
+fn build_lmstudio_embeddings_client(model_name: &str) -> EmbeddingsClient {
+    let endpoint =
+        std::env::var("LMSTUDIO_ENDPOINT").unwrap_or_else(|_| "http://localhost:1234".to_string());
+    let api_base = if endpoint.ends_with("/v1") {
+        endpoint
+    } else {
+        format!("{}/v1", endpoint)
+    };
+
+    let config = OpenAIConfig::new()
+        .with_api_base(api_base)
+        .with_api_key("lmstudio-key");
+
+    EmbeddingsClient::with_config(model_name.to_string(), config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agent::providers::MockProvider;
-    use crate::config::{AgentProfile, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
+    use crate::config::{
+        AgentProfile, AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig,
+    };
     use std::collections::HashMap;
     use tempfile::tempdir;
 
@@ -371,6 +464,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "info".to_string(),
             },
+            audio: AudioConfig::default(),
             agents: HashMap::new(),
             default_agent: None,
         }
@@ -402,6 +496,9 @@ mod tests {
             fast_model_tasks: vec![],
             escalation_threshold: 0.6,
             show_reasoning: false,
+            enable_audio_transcription: false,
+            audio_response_mode: "immediate".to_string(),
+            audio_scenario: None,
         }
     }
 

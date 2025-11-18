@@ -256,7 +256,7 @@ mod tests {
         assert!(rule.matches("coder", "tool_call", "echo"));
         assert!(!rule.matches("assistant", "tool_call", "echo"));
         assert!(!rule.matches("coder", "file_write", "echo"));
-        assert!(!rule.matches("coder", "tool_call", "math"));
+        assert!(!rule.matches("coder", "tool_call", "calculator"));
     }
 
     #[test]
@@ -283,7 +283,7 @@ mod tests {
         };
 
         assert!(rule.matches("coder", "tool_call", "echo"));
-        assert!(rule.matches("coder", "tool_call", "math"));
+        assert!(rule.matches("coder", "tool_call", "calculator"));
         assert!(rule.matches("coder", "tool_call", "any_tool"));
     }
 

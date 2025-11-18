@@ -20,16 +20,16 @@ async fn test_tool_registry_basic_operations() {
     assert_eq!(registry.len(), 1);
     assert!(registry.has("echo"));
 
-    // Register math tool
+    // Register calculator tool
     registry.register(Arc::new(MathTool::new()));
     assert_eq!(registry.len(), 2);
-    assert!(registry.has("math"));
+    assert!(registry.has("calculator"));
 
     // List all tools
     let tools = registry.list();
     assert_eq!(tools.len(), 2);
     assert!(tools.contains(&"echo"));
-    assert!(tools.contains(&"math"));
+    assert!(tools.contains(&"calculator"));
 }
 
 #[tokio::test]
@@ -58,7 +58,7 @@ async fn test_math_tool_operations() {
         "a": 5.0,
         "b": 3.0
     });
-    let result = registry.execute("math", args).await.unwrap();
+    let result = registry.execute("calculator", args).await.unwrap();
     assert!(result.success);
     assert_eq!(result.output, "8");
 
@@ -68,7 +68,7 @@ async fn test_math_tool_operations() {
         "a": 10.0,
         "b": 4.0
     });
-    let result = registry.execute("math", args).await.unwrap();
+    let result = registry.execute("calculator", args).await.unwrap();
     assert!(result.success);
     assert_eq!(result.output, "6");
 
@@ -78,7 +78,7 @@ async fn test_math_tool_operations() {
         "a": 4.0,
         "b": 5.0
     });
-    let result = registry.execute("math", args).await.unwrap();
+    let result = registry.execute("calculator", args).await.unwrap();
     assert!(result.success);
     assert_eq!(result.output, "20");
 
@@ -88,7 +88,7 @@ async fn test_math_tool_operations() {
         "a": 15.0,
         "b": 3.0
     });
-    let result = registry.execute("math", args).await.unwrap();
+    let result = registry.execute("calculator", args).await.unwrap();
     assert!(result.success);
     assert_eq!(result.output, "5");
 
@@ -98,7 +98,7 @@ async fn test_math_tool_operations() {
         "a": 10.0,
         "b": 0.0
     });
-    let result = registry.execute("math", args).await.unwrap();
+    let result = registry.execute("calculator", args).await.unwrap();
     assert!(!result.success);
     assert!(result.error.is_some());
 }
@@ -115,7 +115,7 @@ async fn test_agent_with_tool_registry() {
         temperature: Some(0.7),
         model_provider: None,
         model_name: None,
-        allowed_tools: Some(vec!["echo".to_string(), "math".to_string()]),
+        allowed_tools: Some(vec!["echo".to_string(), "calculator".to_string()]),
         denied_tools: None,
         memory_k: 5,
         top_p: 0.9,
@@ -142,7 +142,7 @@ async fn test_agent_with_tool_registry() {
     // Verify agent has access to tools
     assert_eq!(agent.tool_registry().len(), 2);
     assert!(agent.tool_registry().has("echo"));
-    assert!(agent.tool_registry().has("math"));
+    assert!(agent.tool_registry().has("calculator"));
 }
 
 #[tokio::test]
@@ -183,7 +183,7 @@ async fn test_agent_tool_permissions_allowlist() {
 
     // Verify permissions
     assert!(agent.profile().is_tool_allowed("echo"));
-    assert!(!agent.profile().is_tool_allowed("math"));
+    assert!(!agent.profile().is_tool_allowed("calculator"));
 }
 
 #[tokio::test]
@@ -192,7 +192,7 @@ async fn test_agent_tool_permissions_denylist() {
     let db_path = dir.path().join("test.duckdb");
     let persistence = Persistence::new(&db_path).unwrap();
 
-    // Profile with math denied
+    // Profile with calculator denied
     let profile = AgentProfile {
         prompt: Some("Test".to_string()),
         style: None,
@@ -200,7 +200,7 @@ async fn test_agent_tool_permissions_denylist() {
         model_provider: None,
         model_name: None,
         allowed_tools: None,
-        denied_tools: Some(vec!["math".to_string()]),
+        denied_tools: Some(vec!["calculator".to_string()]),
         memory_k: 5,
         top_p: 0.9,
         max_context_tokens: Some(2048),
@@ -224,7 +224,7 @@ async fn test_agent_tool_permissions_denylist() {
 
     // Verify permissions
     assert!(agent.profile().is_tool_allowed("echo"));
-    assert!(!agent.profile().is_tool_allowed("math"));
+    assert!(!agent.profile().is_tool_allowed("calculator"));
 }
 
 #[tokio::test]
@@ -290,7 +290,7 @@ async fn test_default_builtin_tool_registry() {
     let registry = agent.tool_registry();
     assert!(registry.len() >= 5);
     assert!(registry.has("echo"));
-    assert!(registry.has("math"));
+    assert!(registry.has("calculator"));
     assert!(registry.has("file_read"));
     assert!(registry.has("file_write"));
     assert!(registry.has("bash"));
@@ -307,7 +307,7 @@ async fn test_tool_error_handling() {
         "a": 5.0,
         "b": 3.0
     });
-    let result = registry.execute("math", args).await.unwrap();
+    let result = registry.execute("calculator", args).await.unwrap();
     assert!(!result.success);
     assert!(result.error.is_some());
 

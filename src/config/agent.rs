@@ -24,7 +24,7 @@ pub struct AgentProfile {
     #[serde(default)]
     pub temperature: Option<f32>,
 
-    /// Model provider override (e.g., "openai", "anthropic")
+    /// Model provider override (e.g., "openai", "anthropic", "lmstudio")
     #[serde(default)]
     pub model_provider: Option<String>,
 
@@ -86,11 +86,11 @@ pub struct AgentProfile {
     #[serde(default)]
     pub fast_reasoning: bool,
 
-    /// Model provider for fast reasoning (e.g., "mlx", "ollama")
+    /// Model provider for fast reasoning (e.g., "mlx", "ollama", "lmstudio")
     #[serde(default)]
     pub fast_model_provider: Option<String>,
 
-    /// Model name for fast reasoning (e.g., "mlx-community/Llama-3.2-3B-Instruct-4bit")
+    /// Model name for fast reasoning (e.g., "lmstudio-community/Llama-3.2-3B-Instruct")
     #[serde(default)]
     pub fast_model_name: Option<String>,
 
@@ -109,6 +109,19 @@ pub struct AgentProfile {
     /// Display reasoning summary to user (requires fast model for summarization)
     #[serde(default)]
     pub show_reasoning: bool,
+
+    // ========== Audio Transcription Configuration ==========
+    /// Enable audio transcription for this agent
+    #[serde(default)]
+    pub enable_audio_transcription: bool,
+
+    /// Audio response mode: "immediate" or "batch"
+    #[serde(default = "AgentProfile::default_audio_response_mode")]
+    pub audio_response_mode: String,
+
+    /// Preferred audio transcription scenario for testing
+    #[serde(default)]
+    pub audio_scenario: Option<String>,
 }
 
 impl AgentProfile {
@@ -148,6 +161,10 @@ impl AgentProfile {
 
     fn default_escalation_threshold() -> f32 {
         0.6 // Escalate to main model if confidence < 60%
+    }
+
+    fn default_audio_response_mode() -> String {
+        "immediate".to_string()
     }
 
     /// Validate the agent profile configuration
@@ -207,7 +224,7 @@ impl AgentProfile {
 
         // Validate model provider if specified
         if let Some(provider) = &self.model_provider {
-            let valid_providers = vec!["mock", "openai", "anthropic", "ollama", "mlx"];
+            let valid_providers = vec!["mock", "openai", "anthropic", "ollama", "mlx", "lmstudio"];
             if !valid_providers.contains(&provider.as_str()) {
                 return Err(AgentError::Invalid(format!(
                     "model_provider must be one of: {}. Got: {}",
@@ -274,14 +291,17 @@ impl Default for AgentProfile {
             graph_weight: Self::default_graph_weight(),
             auto_graph: true, // Enable by default
             graph_threshold: Self::default_graph_threshold(),
-            graph_steering: true,                         // Enable by default
-            fast_reasoning: true,                         // Enable multi-model by default
-            fast_model_provider: Some("mlx".to_string()), // Default to MLX for Apple Silicon
-            fast_model_name: Some("mlx-community/Llama-3.2-3B-Instruct-4bit".to_string()),
+            graph_steering: true, // Enable by default
+            fast_reasoning: true, // Enable multi-model by default
+            fast_model_provider: Some("lmstudio".to_string()), // Default to LM Studio local server
+            fast_model_name: Some("lmstudio-community/Llama-3.2-3B-Instruct".to_string()),
             fast_model_temperature: Self::default_fast_temperature(),
             fast_model_tasks: Self::default_fast_tasks(),
             escalation_threshold: Self::default_escalation_threshold(),
-            show_reasoning: false, // Disabled by default
+            show_reasoning: false,             // Disabled by default
+            enable_audio_transcription: false, // Disabled by default
+            audio_response_mode: Self::default_audio_response_mode(),
+            audio_scenario: None,
         }
     }
 }
@@ -298,10 +318,10 @@ mod tests {
 
         // Verify multi-model is enabled by default
         assert!(profile.fast_reasoning);
-        assert_eq!(profile.fast_model_provider, Some("mlx".to_string()));
+        assert_eq!(profile.fast_model_provider, Some("lmstudio".to_string()));
         assert_eq!(
             profile.fast_model_name,
-            Some("mlx-community/Llama-3.2-3B-Instruct-4bit".to_string())
+            Some("lmstudio-community/Llama-3.2-3B-Instruct".to_string())
         );
         assert_eq!(profile.fast_model_temperature, 0.3);
         assert_eq!(profile.escalation_threshold, 0.6);

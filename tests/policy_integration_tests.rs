@@ -91,7 +91,7 @@ fn test_policy_allows_specific_tool() {
         temperature: Some(0.7),
         model_provider: None,
         model_name: None,
-        allowed_tools: Some(vec!["echo".to_string(), "math".to_string()]),
+        allowed_tools: Some(vec!["echo".to_string(), "calculator".to_string()]),
         denied_tools: None,
         memory_k: 5,
         top_p: 0.9,
@@ -106,7 +106,9 @@ fn test_policy_allows_specific_tool() {
     assert_eq!(decision, PolicyDecision::Allow);
 
     // Policy doesn't have rule for math, so it's denied by default
-    let decision = agent.policy_engine().check("agent", "tool_call", "math");
+    let decision = agent
+        .policy_engine()
+        .check("agent", "tool_call", "calculator");
     match decision {
         PolicyDecision::Deny(_) => {}
         PolicyDecision::Allow => panic!("Expected deny for math"),
@@ -121,7 +123,7 @@ fn test_policy_denies_specific_tool() {
     policy_engine.add_rule(PolicyRule {
         agent: "*".to_string(),
         action: "tool_call".to_string(),
-        resource: "math".to_string(),
+        resource: "calculator".to_string(),
         effect: PolicyEffect::Deny,
     });
 
@@ -130,10 +132,12 @@ fn test_policy_denies_specific_tool() {
     let (agent, _dir) = create_test_agent_with_policy(Arc::new(policy_engine), profile);
 
     // Policy explicitly denies math
-    let decision = agent.policy_engine().check("agent", "tool_call", "math");
+    let decision = agent
+        .policy_engine()
+        .check("agent", "tool_call", "calculator");
     match decision {
         PolicyDecision::Deny(reason) => {
-            assert!(reason.contains("math"));
+            assert!(reason.contains("calculator"));
         }
         PolicyDecision::Allow => panic!("Expected deny for math"),
     }
@@ -159,7 +163,9 @@ fn test_policy_wildcard_allows_all_tools() {
     let decision = agent.policy_engine().check("agent", "tool_call", "echo");
     assert_eq!(decision, PolicyDecision::Allow);
 
-    let decision = agent.policy_engine().check("agent", "tool_call", "math");
+    let decision = agent
+        .policy_engine()
+        .check("agent", "tool_call", "calculator");
     assert_eq!(decision, PolicyDecision::Allow);
 
     let decision = agent
@@ -217,7 +223,7 @@ fn test_policy_persistence_round_trip() {
     engine.add_rule(PolicyRule {
         agent: "*".to_string(),
         action: "tool_call".to_string(),
-        resource: "math".to_string(),
+        resource: "calculator".to_string(),
         effect: PolicyEffect::Deny,
     });
 
@@ -233,7 +239,7 @@ fn test_policy_persistence_round_trip() {
     let decision = loaded_engine.check("coder", "tool_call", "echo");
     assert_eq!(decision, PolicyDecision::Allow);
 
-    let decision = loaded_engine.check("anyone", "tool_call", "math");
+    let decision = loaded_engine.check("anyone", "tool_call", "calculator");
     match decision {
         PolicyDecision::Deny(_) => {}
         PolicyDecision::Allow => panic!("Expected deny for math"),
@@ -313,7 +319,7 @@ fn test_policy_combined_with_profile_permissions() {
     policy_engine.add_rule(PolicyRule {
         agent: "*".to_string(),
         action: "tool_call".to_string(),
-        resource: "math".to_string(),
+        resource: "calculator".to_string(),
         effect: PolicyEffect::Allow,
     });
 
@@ -340,11 +346,13 @@ fn test_policy_combined_with_profile_permissions() {
     assert_eq!(decision, PolicyDecision::Allow);
 
     // Profile denies math (not in allowlist), policy allows math -> denied by profile
-    let decision = agent.policy_engine().check("agent", "tool_call", "math");
+    let decision = agent
+        .policy_engine()
+        .check("agent", "tool_call", "calculator");
     assert_eq!(decision, PolicyDecision::Allow); // Policy allows it
 
     // But is_tool_allowed checks both profile and policy
     // Profile denies math, so overall result is deny
     assert!(agent.profile().is_tool_allowed("echo"));
-    assert!(!agent.profile().is_tool_allowed("math")); // Profile denies
+    assert!(!agent.profile().is_tool_allowed("calculator")); // Profile denies
 }

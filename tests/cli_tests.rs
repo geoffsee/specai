@@ -1,6 +1,6 @@
 use spec_ai::cli::CliState;
 use spec_ai::config::{
-    AgentProfile, AppConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig,
+    AgentProfile, AppConfig, AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -47,6 +47,7 @@ async fn test_full_cli_workflow() {
         logging: LoggingConfig {
             level: "info".into(),
         },
+        audio: AudioConfig::default(),
         agents,
         default_agent: Some("coder".into()),
     };
@@ -173,6 +174,7 @@ deliverables = [
         logging: LoggingConfig {
             level: "info".into(),
         },
+        audio: AudioConfig::default(),
         agents,
         default_agent: Some("default".into()),
     };
@@ -223,6 +225,7 @@ async fn test_session_isolation() {
         logging: LoggingConfig {
             level: "info".into(),
         },
+        audio: AudioConfig::default(),
         agents,
         default_agent: Some("test".into()),
     };
@@ -278,6 +281,7 @@ async fn test_agent_switching_preserves_session() {
         logging: LoggingConfig {
             level: "info".into(),
         },
+        audio: AudioConfig::default(),
         agents,
         default_agent: Some("agent1".into()),
     };
@@ -324,6 +328,7 @@ async fn test_config_reload() {
         logging: LoggingConfig {
             level: "info".into(),
         },
+        audio: AudioConfig::default(),
         agents,
         default_agent: Some("test".into()),
     };
@@ -377,6 +382,7 @@ async fn test_empty_commands() {
         logging: LoggingConfig {
             level: "info".into(),
         },
+        audio: AudioConfig::default(),
         agents,
         default_agent: Some("test".into()),
     };
@@ -418,6 +424,7 @@ async fn test_list_agents_empty() {
         logging: LoggingConfig {
             level: "info".into(),
         },
+        audio: AudioConfig::default(),
         agents: HashMap::new(),
         default_agent: None,
     };

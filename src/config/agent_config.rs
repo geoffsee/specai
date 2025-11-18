@@ -24,6 +24,9 @@ pub struct AppConfig {
     /// Logging configuration
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// Audio transcription configuration
+    #[serde(default)]
+    pub audio: AudioConfig,
     /// Available agent profiles
     #[serde(default)]
     pub agents: HashMap<String, AgentProfile>,
@@ -68,7 +71,7 @@ impl AppConfig {
         // Validate against known provider names independent of compile-time feature flags
         {
             let p = self.model.provider.to_lowercase();
-            let known = ["mock", "openai", "anthropic", "ollama", "mlx"];
+            let known = ["mock", "openai", "anthropic", "ollama", "mlx", "lmstudio"];
             if !known.contains(&p.as_str()) {
                 return Err(anyhow::anyhow!(
                     "Invalid model provider: {}",
@@ -166,6 +169,7 @@ impl Default for AppConfig {
             model: ModelConfig::default(),
             ui: UiConfig::default(),
             logging: LoggingConfig::default(),
+            audio: AudioConfig::default(),
             agents: HashMap::new(),
             default_agent: None,
         }
@@ -190,7 +194,7 @@ impl Default for DatabaseConfig {
 /// Model provider configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
-    /// Provider name (e.g., "openai", "anthropic", "mlx", "mock")
+    /// Provider name (e.g., "openai", "anthropic", "mlx", "lmstudio", "mock")
     pub provider: String,
     /// Model name to use (e.g., "gpt-4", "claude-3-opus")
     #[serde(default)]
@@ -251,6 +255,50 @@ impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
             level: "info".to_string(),
+        }
+    }
+}
+
+/// Audio transcription configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioConfig {
+    /// Whether audio transcription is enabled
+    #[serde(default)]
+    pub enabled: bool,
+    /// Default mock scenario for testing
+    #[serde(default = "default_scenario")]
+    pub mock_scenario: String,
+    /// Event dispatch delay in milliseconds
+    #[serde(default = "default_event_delay")]
+    pub event_delay_ms: u64,
+    /// Whether to automatically respond to transcriptions
+    #[serde(default)]
+    pub auto_respond: bool,
+    /// Default transcription duration in seconds
+    #[serde(default = "default_duration")]
+    pub default_duration: u64,
+}
+
+fn default_scenario() -> String {
+    "simple_conversation".to_string()
+}
+
+fn default_event_delay() -> u64 {
+    500
+}
+
+fn default_duration() -> u64 {
+    30
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mock_scenario: default_scenario(),
+            event_delay_ms: default_event_delay(),
+            auto_respond: false,
+            default_duration: default_duration(),
         }
     }
 }

@@ -381,6 +381,14 @@ AI reasoning with graph-based memory:
 - **`/graph show [N]`** — Display last N graph nodes (default: 10)
 - **`/graph clear`** — Clear graph for current session
 
+## Audio Transcription
+Mock audio input transcription for testing:
+
+- **`/listen [scenario] [duration]`** — Start audio transcription simulation
+  - **Scenarios:** `simple_conversation`, `command_sequence`, `noisy_environment`, `emotional_context`, `multi_speaker`
+  - **Duration:** Time in seconds (default: 30)
+  - Example: `/listen simple_conversation 60`
+
 ## Spec Runs
 Execute structured `.spec` files with clear goals:
 

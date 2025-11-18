@@ -11,9 +11,9 @@ path = "~/.agent_cli/agent_data.duckdb"
 
 # Main model configuration (for complex reasoning)
 [model]
-provider = "mlx"
-model_name = "mlx-community/Qwen3-0.6B-4bit"
-embeddings_model = "mlx-community/snowflake-arctic-embed-l-v2.0-4bit"
+provider = "lmstudio"
+model_name = "qwen/qwen3-vl-8b"
+embeddings_model = "text-embedding-nomic-embed-text-v2-moe"
 temperature = 0.7
 
 # User interface configuration
@@ -46,6 +46,7 @@ top_p = 0.9
 # Explicitly allow tools for code generation
 allowed_tools = [
     "file_write",
+    "file_extract",
     "file_read",
     "bash",
     "shell",
@@ -53,7 +54,7 @@ allowed_tools = [
     "echo",
     "web_search",
     "graph",
-    "math"
+    "calculator"
 ]
 
 # ========== HIERARCHICAL MULTI-MODEL REASONING ==========
@@ -61,11 +62,11 @@ allowed_tools = [
 fast_reasoning = true
 
 # Fast model provider configuration
-# MLX for Apple Silicon Macs, or Ollama for cross-platform
-fast_model_provider = "mlx"  # Options: "mlx", "ollama"
+# LM Studio for local serving, or Ollama for cross-platform deployment
+fast_model_provider = "lmstudio"  # Options: "lmstudio", "ollama", "mlx"
 
 # Llama-3.2-3B model (4-bit quantized for efficiency)
-fast_model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+fast_model_name = "llama-3.2-3b-instruct"
 
 # For Ollama, use:
 # fast_model_provider = "ollama"
@@ -105,8 +106,8 @@ temperature = 0.3
 memory_k = 5
 
 # Use only the fast model (no main model)
-model_provider = "mlx"
-model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+model_provider = "lmstudio"
+model_name = "llama-3.2-3b-instruct"
 
 # No hierarchical reasoning (single model)
 fast_reasoning = false
@@ -121,8 +122,8 @@ memory_k = 30
 
 # Enable multi-model for research
 fast_reasoning = true
-fast_model_provider = "mlx"
-fast_model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+fast_model_provider = "lmstudio"
+fast_model_name = "llama-3.2-3b-instruct"
 fast_model_temperature = 0.2
 
 # Research-specific fast tasks
@@ -145,8 +146,8 @@ memory_k = 25
 
 # Enable fast model for code tasks
 fast_reasoning = true
-fast_model_provider = "mlx"
-fast_model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+fast_model_provider = "lmstudio"
+fast_model_name = "llama-3.2-3b-instruct"
 fast_model_temperature = 0.1  # Very low for deterministic syntax checking
 
 fast_model_tasks = [

@@ -1,7 +1,8 @@
-//! MLX Model Provider
+//! LM Studio Model Provider
 //!
-//! Integration with MLX (Apple's machine learning framework) via OpenAI-compatible API.
-//! MLX provides local inference on Apple Silicon with an OpenAI-compatible server.
+//! Integrates with the LM Studio local server which exposes an OpenAI-compatible API.
+//! This allows using locally hosted models while still benefiting from the agent
+//! framework's standard tooling and function calling surface.
 
 use crate::agent::model::{
     parse_thinking_tokens, GenerationConfig, ModelProvider, ModelResponse, ProviderKind,
@@ -21,28 +22,25 @@ use async_trait::async_trait;
 use futures::Stream;
 use std::pin::Pin;
 
-/// MLX provider that uses OpenAI-compatible API
+/// LM Studio provider implemented through the OpenAI-compatible API surface.
 #[derive(Debug, Clone)]
-pub struct MLXProvider {
-    /// The async-openai client configured for MLX endpoint
+pub struct LMStudioProvider {
+    /// Async OpenAI client configured for the LM Studio endpoint.
     client: Client<OpenAIConfig>,
-    /// Model name (e.g., "mlx-community/Llama-3.2-3B-Instruct-4bit")
+    /// Model identifier (as configured within LM Studio).
     model: String,
-    /// Optional system message for all requests
+    /// Optional system message applied to all prompts.
     system_message: Option<String>,
-    /// Optional tool definitions for OpenAI-compatible function calling
+    /// Optional OpenAI tool definitions for native function calling support.
     tools: Option<Vec<ChatCompletionTool>>,
 }
 
-impl MLXProvider {
-    /// Create a new MLX provider with the default configuration
-    ///
-    /// This will connect to http://localhost:10240 by default.
-    /// The model must be specified since MLX can serve various models.
+impl LMStudioProvider {
+    /// Create a provider pointing at the default LM Studio endpoint (http://localhost:1234/v1).
     pub fn new(model: impl Into<String>) -> Self {
         let config = OpenAIConfig::new()
-            .with_api_base("http://localhost:10240/v1")
-            .with_api_key("mlx-key"); // MLX doesn't require a real key, but the client needs one
+            .with_api_base("http://localhost:1234/v1")
+            .with_api_key("lm-studio");
 
         Self {
             client: Client::with_config(config),
@@ -52,7 +50,7 @@ impl MLXProvider {
         }
     }
 
-    /// Create a new MLX provider with a custom endpoint
+    /// Create a provider with a custom HTTP endpoint (e.g., remote LM Studio host).
     pub fn with_endpoint(endpoint: impl Into<String>, model: impl Into<String>) -> Self {
         let endpoint_str = endpoint.into();
         let api_base = if endpoint_str.ends_with("/v1") {
@@ -63,7 +61,7 @@ impl MLXProvider {
 
         let config = OpenAIConfig::new()
             .with_api_base(api_base)
-            .with_api_key("mlx-key");
+            .with_api_key("lm-studio");
 
         Self {
             client: Client::with_config(config),
@@ -73,7 +71,7 @@ impl MLXProvider {
         }
     }
 
-    /// Create a new MLX provider with a custom configuration
+    /// Create a provider from a fully customized OpenAI configuration.
     pub fn with_config(config: OpenAIConfig, model: impl Into<String>) -> Self {
         Self {
             client: Client::with_config(config),
@@ -83,33 +81,27 @@ impl MLXProvider {
         }
     }
 
-    /// Set the model to use
+    /// Override the model identifier for future requests.
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
     }
 
-    /// Set a system message to be included in all requests
+    /// Apply a persistent system message to every chat request.
     pub fn with_system_message(mut self, message: impl Into<String>) -> Self {
         self.system_message = Some(message.into());
         self
     }
 
-    /// Attach function-calling tools (OpenAI-compatible) for this provider.
-    ///
-    /// When tools are present, MLX will receive them in the ChatCompletion
-    /// request and can respond with tool_calls, which the agent core will
-    /// execute just like with the OpenAI provider.
+    /// Attach OpenAI-native tools for function calling.
     pub fn with_tools(mut self, tools: Vec<ChatCompletionTool>) -> Self {
         self.tools = if tools.is_empty() { None } else { Some(tools) };
         self
     }
 
-    /// Build the messages for the chat completion request
     fn build_messages(&self, prompt: &str) -> Result<Vec<ChatCompletionRequestMessage>> {
         let mut messages = Vec::new();
 
-        // Add system message if present
         if let Some(system_msg) = &self.system_message {
             let system_message = ChatCompletionRequestSystemMessageArgs::default()
                 .content(system_msg.clone())
@@ -118,7 +110,6 @@ impl MLXProvider {
             messages.push(ChatCompletionRequestMessage::System(system_message));
         }
 
-        // Add user prompt
         let user_message = ChatCompletionRequestUserMessageArgs::default()
             .content(prompt)
             .build()
@@ -130,11 +121,10 @@ impl MLXProvider {
 }
 
 #[async_trait]
-impl ModelProvider for MLXProvider {
+impl ModelProvider for LMStudioProvider {
     async fn generate(&self, prompt: &str, config: &GenerationConfig) -> Result<ModelResponse> {
         let messages = self.build_messages(prompt)?;
 
-        // Build the request with configuration
         let mut request_builder = CreateChatCompletionRequestArgs::default();
         request_builder.model(&self.model).messages(messages);
 
@@ -157,35 +147,29 @@ impl ModelProvider for MLXProvider {
             request_builder.stop(stop.clone());
         }
 
-        // Add tools to the request if available (native function calling)
         if let Some(ref tools) = self.tools {
             request_builder.tools(tools.clone());
         }
 
         let request = request_builder
             .build()
-            .map_err(|e| anyhow!("Failed to build request: {}", e))?;
+            .map_err(|e| anyhow!("Failed to build LM Studio request: {}", e))?;
 
-        // Make the API call
         let response = self
             .client
             .chat()
             .create(request)
             .await
-            .map_err(|e| anyhow!("MLX API error: {}", e))?;
+            .map_err(|e| anyhow!("LM Studio API error: {}", e))?;
 
-        // Extract the response
         let choice = response
             .choices
             .first()
             .ok_or_else(|| anyhow!("No response choices returned"))?;
 
         let raw_content = choice.message.content.clone().unwrap_or_default();
-
-        // Parse thinking tokens if present
         let (reasoning, content) = parse_thinking_tokens(&raw_content);
 
-        // Parse tool calls if present (OpenAI-compatible)
         let tool_calls = choice
             .message
             .tool_calls
@@ -228,7 +212,6 @@ impl ModelProvider for MLXProvider {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
         let messages = self.build_messages(prompt)?;
 
-        // Build the streaming request
         let mut request_builder = CreateChatCompletionRequestArgs::default();
         request_builder
             .model(&self.model)
@@ -256,18 +239,15 @@ impl ModelProvider for MLXProvider {
 
         let request = request_builder
             .build()
-            .map_err(|e| anyhow!("Failed to build streaming request: {}", e))?;
+            .map_err(|e| anyhow!("Failed to build LM Studio streaming request: {}", e))?;
 
-        // Make the streaming API call
         let mut response_stream = self
             .client
             .chat()
             .create_stream(request)
             .await
-            .map_err(|e| anyhow!("MLX streaming API error: {}", e))?;
+            .map_err(|e| anyhow!("LM Studio streaming API error: {}", e))?;
 
-        // Convert the OpenAI-compatible stream to our stream format
-        // Buffer to track if we're in a <think> block
         let stream = stream! {
             use futures::StreamExt;
 
@@ -282,23 +262,18 @@ impl ModelProvider for MLXProvider {
                             if let Some(content) = &choice.delta.content {
                                 buffer.push_str(content);
 
-                                // Check if we're entering a think block
                                 if buffer.contains("<think>") && !in_think_block {
                                     in_think_block = true;
                                 }
 
-                                // Check if we're exiting a think block
                                 if buffer.contains("</think>") && in_think_block {
                                     in_think_block = false;
                                     think_ended = true;
-                                    // Clear buffer up to and including </think>
                                     if let Some(idx) = buffer.find("</think>") {
                                         buffer = buffer[idx + "</think>".len()..].to_string();
                                     }
                                 }
 
-                                // Only yield content if we're not in a think block and think has ended
-                                // or if we never encountered think tags
                                 if !in_think_block && (think_ended || !buffer.contains("<think>")) {
                                     let output = buffer.clone();
                                     buffer.clear();
@@ -316,7 +291,6 @@ impl ModelProvider for MLXProvider {
                 }
             }
 
-            // Yield any remaining buffered content
             if !buffer.is_empty() && !in_think_block {
                 yield Ok(buffer);
             }
@@ -327,20 +301,18 @@ impl ModelProvider for MLXProvider {
 
     fn metadata(&self) -> ProviderMetadata {
         ProviderMetadata {
-            name: "MLX".to_string(),
+            name: "LM Studio".to_string(),
             supported_models: vec![
-                "mlx-community/Llama-3.2-3B-Instruct-4bit".to_string(),
-                "mlx-community/Llama-3.2-1B-Instruct-4bit".to_string(),
-                "mlx-community/Mistral-7B-Instruct-v0.3-4bit".to_string(),
-                "mlx-community/gemma-2-2b-it-4bit".to_string(),
-                // MLX supports many models - these are just examples
+                "lmstudio-community/Llama-3.2-3B-Instruct".to_string(),
+                "lmstudio-community/Mistral-7B-Instruct".to_string(),
+                "lmstudio-community/phi-3-medium-4k-instruct".to_string(),
             ],
             supports_streaming: true,
         }
     }
 
     fn kind(&self) -> ProviderKind {
-        ProviderKind::MLX
+        ProviderKind::LMStudio
     }
 }
 
@@ -353,9 +325,9 @@ mod tests {
         target_os = "macos",
         ignore = "system proxy APIs unavailable in sandbox"
     )]
-    fn test_mlx_provider_creation() {
-        let provider = MLXProvider::new("mlx-community/Llama-3.2-3B-Instruct-4bit");
-        assert_eq!(provider.model, "mlx-community/Llama-3.2-3B-Instruct-4bit");
+    fn test_lmstudio_provider_creation() {
+        let provider = LMStudioProvider::new("lmstudio-community/Llama-3.2-3B-Instruct");
+        assert_eq!(provider.model, "lmstudio-community/Llama-3.2-3B-Instruct");
         assert!(provider.system_message.is_none());
     }
 
@@ -364,12 +336,12 @@ mod tests {
         target_os = "macos",
         ignore = "system proxy APIs unavailable in sandbox"
     )]
-    fn test_mlx_provider_with_custom_endpoint() {
-        let provider = MLXProvider::with_endpoint(
-            "http://192.168.1.100:8080",
-            "mlx-community/Llama-3.2-3B-Instruct-4bit",
+    fn test_lmstudio_provider_with_custom_endpoint() {
+        let provider = LMStudioProvider::with_endpoint(
+            "http://192.168.1.2:1234",
+            "lmstudio-community/Llama-3.2-3B-Instruct",
         );
-        assert_eq!(provider.model, "mlx-community/Llama-3.2-3B-Instruct-4bit");
+        assert_eq!(provider.model, "lmstudio-community/Llama-3.2-3B-Instruct");
     }
 
     #[test]
@@ -377,9 +349,9 @@ mod tests {
         target_os = "macos",
         ignore = "system proxy APIs unavailable in sandbox"
     )]
-    fn test_mlx_provider_with_model() {
-        let provider = MLXProvider::new("model-1").with_model("model-2");
-        assert_eq!(provider.model, "model-2");
+    fn test_lmstudio_provider_with_model() {
+        let provider = LMStudioProvider::new("model-a").with_model("model-b");
+        assert_eq!(provider.model, "model-b");
     }
 
     #[test]
@@ -387,9 +359,9 @@ mod tests {
         target_os = "macos",
         ignore = "system proxy APIs unavailable in sandbox"
     )]
-    fn test_mlx_provider_with_system_message() {
+    fn test_lmstudio_provider_with_system_message() {
         let provider =
-            MLXProvider::new("test-model").with_system_message("You are a helpful assistant.");
+            LMStudioProvider::new("test-model").with_system_message("You are a helpful assistant.");
         assert_eq!(
             provider.system_message,
             Some("You are a helpful assistant.".to_string())
@@ -401,11 +373,11 @@ mod tests {
         target_os = "macos",
         ignore = "system proxy APIs unavailable in sandbox"
     )]
-    fn test_mlx_provider_metadata() {
-        let provider = MLXProvider::new("test-model");
+    fn test_lmstudio_provider_metadata() {
+        let provider = LMStudioProvider::new("test-model");
         let metadata = provider.metadata();
 
-        assert_eq!(metadata.name, "MLX");
+        assert_eq!(metadata.name, "LM Studio");
         assert!(metadata.supports_streaming);
         assert!(!metadata.supported_models.is_empty());
     }
@@ -415,9 +387,9 @@ mod tests {
         target_os = "macos",
         ignore = "system proxy APIs unavailable in sandbox"
     )]
-    fn test_mlx_provider_kind() {
-        let provider = MLXProvider::new("test-model");
-        assert_eq!(provider.kind(), ProviderKind::MLX);
+    fn test_lmstudio_provider_kind() {
+        let provider = LMStudioProvider::new("test-model");
+        assert_eq!(provider.kind(), ProviderKind::LMStudio);
     }
 
     #[test]
@@ -426,9 +398,8 @@ mod tests {
         ignore = "system proxy APIs unavailable in sandbox"
     )]
     fn test_build_messages_without_system() {
-        let provider = MLXProvider::new("test-model");
-        let messages = provider.build_messages("Hello, world!").unwrap();
-
+        let provider = LMStudioProvider::new("test-model");
+        let messages = provider.build_messages("Hello").unwrap();
         assert_eq!(messages.len(), 1);
     }
 
@@ -439,9 +410,8 @@ mod tests {
     )]
     fn test_build_messages_with_system() {
         let provider =
-            MLXProvider::new("test-model").with_system_message("You are a helpful assistant.");
-        let messages = provider.build_messages("Hello, world!").unwrap();
-
+            LMStudioProvider::new("test-model").with_system_message("You are a helpful assistant.");
+        let messages = provider.build_messages("Hello").unwrap();
         assert_eq!(messages.len(), 2);
     }
 }

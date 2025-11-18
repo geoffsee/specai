@@ -3,6 +3,8 @@
 //! Creates model provider instances based on configuration.
 
 use crate::agent::model::{ModelProvider, ProviderKind};
+#[cfg(feature = "lmstudio")]
+use crate::agent::providers::LMStudioProvider;
 #[cfg(feature = "mlx")]
 use crate::agent::providers::MLXProvider;
 use crate::agent::providers::MockProvider;
@@ -75,6 +77,21 @@ pub fn create_provider(config: &ModelConfig) -> Result<Arc<dyn ModelProvider>> {
                 MLXProvider::with_endpoint(endpoint, model_name)
             } else {
                 MLXProvider::new(model_name)
+            };
+
+            Ok(Arc::new(provider))
+        }
+
+        #[cfg(feature = "lmstudio")]
+        ProviderKind::LMStudio => {
+            let model_name = config.model_name.as_ref().ok_or_else(|| {
+                anyhow!("LM Studio provider requires a model_name to be specified")
+            })?;
+
+            let provider = if let Ok(endpoint) = std::env::var("LMSTUDIO_ENDPOINT") {
+                LMStudioProvider::with_endpoint(endpoint, model_name)
+            } else {
+                LMStudioProvider::new(model_name)
             };
 
             Ok(Arc::new(provider))

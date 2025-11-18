@@ -33,6 +33,9 @@ pub enum Command {
     GraphStatus,
     GraphShow(Option<usize>),
     GraphClear,
+    // Audio commands
+    Listen(Option<String>, Option<u64>), // scenario, duration in seconds
+    PasteStart,
     RunSpec(PathBuf),
     Message(String),
     Empty,
@@ -102,6 +105,13 @@ pub fn parse_command(input: &str) -> Command {
                 Some("clear") => Command::GraphClear,
                 _ => Command::Help,
             },
+            "listen" => {
+                // Parse optional scenario and duration
+                let scenario = parts.next().map(|s| s.to_string());
+                let duration = parts.next().and_then(|s| s.parse::<u64>().ok());
+                Command::Listen(scenario, duration)
+            }
+            "paste" => Command::PasteStart,
             "spec" => {
                 let args: Vec<&str> = parts.collect();
                 if args.is_empty() {
@@ -134,6 +144,8 @@ pub struct CliState {
     pub agent: AgentCore,
     pub reasoning_messages: Vec<String>,
     pub status_message: String,
+    paste_mode: bool,
+    paste_buffer: String,
 }
 
 impl CliState {
@@ -185,6 +197,8 @@ impl CliState {
             agent,
             reasoning_messages: vec!["Reasoning: idle".to_string()],
             status_message: "Status: initializing".to_string(),
+            paste_mode: false,
+            paste_buffer: String::new(),
         })
     }
 
@@ -401,6 +415,73 @@ impl CliState {
                     count, session_id
                 )))
             }
+            Command::Listen(scenario, duration) => {
+                // Execute the audio_transcribe tool
+                let tools = self.agent.tool_registry();
+                if !tools.has("audio_transcribe") {
+                    return Ok(Some(
+                        "Audio transcription tool is not available. \
+                        Please ensure it's registered in the tool registry."
+                            .to_string(),
+                    ));
+                }
+
+                // Build tool arguments
+                let mut args = serde_json::json!({
+                    "mode": "stream",
+                    "persist": true,
+                });
+
+                if let Some(scenario_name) = scenario {
+                    args["scenario"] = serde_json::json!(scenario_name);
+                } else {
+                    args["scenario"] = serde_json::json!("simple_conversation");
+                }
+
+                if let Some(dur) = duration {
+                    args["duration"] = serde_json::json!(dur);
+                } else {
+                    args["duration"] = serde_json::json!(30); // Default 30 seconds
+                }
+
+                // Execute the tool
+                let result = tools.execute("audio_transcribe", args).await?;
+
+                if result.success {
+                    // Parse the result JSON
+                    let output: serde_json::Value = serde_json::from_str(&result.output)?;
+                    let message = output["message"]
+                        .as_str()
+                        .unwrap_or("Audio transcription started.");
+
+                    // Display sample transcriptions if available
+                    let mut response = message.to_string();
+                    if let Some(samples) = output["sample_transcriptions"].as_array() {
+                        if !samples.is_empty() {
+                            response.push_str("\n\nInitial transcriptions:");
+                            for sample in samples {
+                                if let Some(text) = sample.as_str() {
+                                    response.push_str(&format!("\n  • {}", text));
+                                }
+                            }
+                        }
+                    }
+
+                    Ok(Some(response))
+                } else {
+                    Ok(Some(format!(
+                        "Audio transcription failed: {}",
+                        result.error.unwrap_or_else(|| "Unknown error".to_string())
+                    )))
+                }
+            }
+            Command::PasteStart => {
+                // Paste mode is handled at the REPL loop level; this arm is mainly for tests
+                Ok(Some(
+                    "Entering paste mode. Paste your block and finish with /end on its own line."
+                        .to_string(),
+                ))
+            }
             Command::RunSpec(path) => {
                 let output = self.run_spec_command(&path).await?;
                 Ok(Some(output))
@@ -440,7 +521,54 @@ impl CliState {
             if n == 0 {
                 break;
             } // EOF
+
+            let trimmed = line.trim_end_matches(&['\n', '\r'][..]);
+
+            // If we're currently in paste mode, accumulate lines until the user
+            // types /end on its own line, then send the entire block as one
+            // message.
+            if self.paste_mode {
+                if trimmed == "/end" {
+                    // Leave paste mode and send the buffered block
+                    self.paste_mode = false;
+                    let full_input = std::mem::take(&mut self.paste_buffer);
+                    let command_preview = Command::Message(full_input.clone());
+                    self.update_status_for_command(&command_preview);
+                    if !matches!(command_preview, Command::Empty) {
+                        self.render_status_line(&mut stdout).await?;
+                    }
+                    if let Some(out) = self.handle_line(&full_input).await? {
+                        if out == "__QUIT__" {
+                            break;
+                        }
+                        stdout.write_all(out.as_bytes()).await?;
+                        if !out.ends_with('\n') {
+                            stdout.write_all(b"\n").await?;
+                        }
+                        stdout.flush().await?;
+                    }
+                    self.set_status_idle();
+                } else if !trimmed.is_empty() {
+                    if !self.paste_buffer.is_empty() {
+                        self.paste_buffer.push('\n');
+                    }
+                    self.paste_buffer.push_str(trimmed);
+                }
+                continue;
+            }
+
+            // Normal mode: single-line commands and messages
             let command_preview = parse_command(&line);
+            if matches!(command_preview, Command::PasteStart) {
+                // Enter paste mode; UI hint
+                self.paste_mode = true;
+                self.paste_buffer.clear();
+                self.status_message =
+                    "Status: paste mode (end with /end on its own line)".to_string();
+                self.render_status_line(&mut stdout).await?;
+                continue;
+            }
+
             self.update_status_for_command(&command_preview);
             if !matches!(command_preview, Command::Empty) {
                 self.render_status_line(&mut stdout).await?;
@@ -575,8 +703,21 @@ impl CliState {
             }
             Command::GraphShow(None) => "Status: inspecting graph".to_string(),
             Command::GraphClear => "Status: clearing session graph".to_string(),
+            Command::Listen(scenario, duration) => {
+                let mut status = "Status: starting audio transcription".to_string();
+                if let Some(s) = scenario {
+                    status.push_str(&format!(" (scenario: {})", s));
+                }
+                if let Some(d) = duration {
+                    status.push_str(&format!(" for {} seconds", d));
+                }
+                status
+            }
             Command::RunSpec(path) => {
                 format!("Status: executing spec '{}'", path.display())
+            }
+            Command::PasteStart => {
+                "Status: entering paste mode (end with /end on its own line)".to_string()
             }
             Command::Message(_) => "Status: running agent step".to_string(),
         }
@@ -654,7 +795,7 @@ mod tests {
     use crate::agent::core::{MemoryRecallStats, MemoryRecallStrategy, ToolInvocation};
     use crate::agent::model::TokenUsage;
     use crate::agent::AgentOutput;
-    use crate::config::{DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
+    use crate::config::{AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
     use serde_json::json;
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -811,6 +952,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "info".into(),
             },
+            audio: AudioConfig::default(),
             agents,
             default_agent: Some("test".into()),
         };
@@ -867,6 +1009,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "info".into(),
             },
+            audio: AudioConfig::default(),
             agents,
             default_agent: Some("coder".into()),
         };
@@ -911,6 +1054,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "debug".into(),
             },
+            audio: AudioConfig::default(),
             agents,
             default_agent: Some("test".into()),
         };
@@ -951,6 +1095,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "info".into(),
             },
+            audio: AudioConfig::default(),
             agents,
             default_agent: Some("test".into()),
         };
