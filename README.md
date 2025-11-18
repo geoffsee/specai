@@ -256,7 +256,7 @@ curl -X POST http://localhost:3000/query \
 
 MIT License
 
-Copyright (c) 2024 SpecAI Contributors
+Copyright (c) 2024 spec-ai Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
