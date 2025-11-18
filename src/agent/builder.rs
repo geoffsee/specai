@@ -143,7 +143,7 @@ impl AgentBuilder {
                 registry.len()
             );
             for tool_name in registry.list() {
-                info!("  - Registered tool: {}", tool_name);
+                tracing::debug!("  - Registered tool: {}", tool_name);
             }
             Arc::new(registry)
         });
@@ -282,7 +282,7 @@ impl AgentBuilder {
 
             // If the policy engine has no rules at all, add a default allow-all for tools
             if engine.rule_count() == 0 {
-                info!("Empty policy engine detected, adding default allow-all rule for tools");
+                tracing::debug!("Empty policy engine detected, adding default allow-all rule for tools");
                 engine.add_rule(crate::policy::PolicyRule {
                     agent: "*".to_string(),
                     action: "tool_call".to_string(),

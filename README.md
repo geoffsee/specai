@@ -161,6 +161,8 @@ denied_tools = ["bash", "file_write"]
 memory_k = 20
 ```
 
+`prompt_user` is implicitly allowed (unless you add it to `denied_tools`) so agents can always escalate to a human for clarification.
+
 ### Key APIs
 
 #### Configuration

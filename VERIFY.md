@@ -9,7 +9,7 @@ Human: Please repeat the exact phrase “hello, spec-ai” back to me, preservin
 Assistant: `hello, spec-ai`. (Next run, try a multiline phrase to confirm formatting.)
 
 ### Math
-Human: Confirm a complex calculation with your math tool.
+Human: Use the calculator to calculate our stellar coordinates based on today's date.
 Assistant: It returns `5` for the addition and `1` for the modulo operation. (Variation: then attempt a division by zero and confirm it reports a well-formed error instead of a number.)
 
 ### File Write → Read → Extract

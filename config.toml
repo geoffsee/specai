@@ -56,6 +56,7 @@ allowed_tools = [
     "graph",
     "calculator"
 ]
+# prompt_user is always allowed unless explicitly added to denied_tools.
 
 # ========== HIERARCHICAL MULTI-MODEL REASONING ==========
 # Enable fast reasoning with Llama-3.2-3B

@@ -101,6 +101,7 @@ prompt = "You are a helpful coding assistant. You write clean, well-documented c
 style = "professional"
 temperature = 0.3
 allowed_tools = ["file_read", "file_write", "bash", "search", "file_extract"]
+# prompt_user is implicitly allowed unless you add it to denied_tools.
 memory_k = 25
 
 # Use graph for code structure tracking

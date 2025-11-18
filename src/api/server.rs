@@ -118,7 +118,7 @@ impl ApiServer {
         let app = self.build_router();
         let bind_addr = self.config.bind_address();
 
-        tracing::info!("Starting API server on {}", bind_addr);
+        tracing::debug!("Starting API server on {}", bind_addr);
 
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
@@ -137,7 +137,7 @@ impl ApiServer {
         let app = self.build_router();
         let bind_addr = self.config.bind_address();
 
-        tracing::info!("Starting API server on {}", bind_addr);
+        tracing::debug!("Starting API server on {}", bind_addr);
 
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
