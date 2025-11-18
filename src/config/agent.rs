@@ -125,6 +125,7 @@ pub struct AgentProfile {
 }
 
 impl AgentProfile {
+    const ALWAYS_ALLOWED_TOOLS: [&'static str; 1] = ["prompt_user"];
     fn default_memory_k() -> usize {
         10
     }
@@ -247,6 +248,10 @@ impl AgentProfile {
             }
         }
 
+        if Self::ALWAYS_ALLOWED_TOOLS.contains(&tool_name) {
+            return true;
+        }
+
         // If allowed list exists, only allow tools in the list
         if let Some(allowed) = &self.allowed_tools {
             return allowed.iter().any(|t| t == tool_name);
@@ -361,6 +366,7 @@ mod tests {
     fn test_is_tool_allowed_no_restrictions() {
         let profile = AgentProfile::default();
         assert!(profile.is_tool_allowed("any_tool"));
+        assert!(profile.is_tool_allowed("prompt_user"));
     }
 
     #[test]
@@ -371,15 +377,18 @@ mod tests {
         assert!(profile.is_tool_allowed("tool1"));
         assert!(profile.is_tool_allowed("tool2"));
         assert!(!profile.is_tool_allowed("tool3"));
+        // prompt_user should remain available even if not explicitly listed
+        assert!(profile.is_tool_allowed("prompt_user"));
     }
 
     #[test]
     fn test_is_tool_allowed_with_denylist() {
         let mut profile = AgentProfile::default();
-        profile.denied_tools = Some(vec!["tool1".to_string()]);
+        profile.denied_tools = Some(vec!["tool1".to_string(), "prompt_user".to_string()]);
 
         assert!(!profile.is_tool_allowed("tool1"));
         assert!(profile.is_tool_allowed("tool2"));
+        assert!(!profile.is_tool_allowed("prompt_user"));
     }
 
     #[test]

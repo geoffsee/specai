@@ -45,8 +45,14 @@ struct FileWriteArgs {
     mode: WriteMode,
     #[serde(default)]
     encoding: ContentEncoding,
-    #[serde(default)]
+    #[serde(default = "FileWriteArgs::default_create_dirs")]
     create_dirs: bool,
+}
+
+impl FileWriteArgs {
+    fn default_create_dirs() -> bool {
+        true
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -208,7 +214,7 @@ impl Tool for FileWriteTool {
                 "create_dirs": {
                     "type": "boolean",
                     "description": "Create parent directories when needed",
-                    "default": false
+                    "default": true
                 }
             },
             "required": ["path", "content"]

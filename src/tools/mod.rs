@@ -10,7 +10,7 @@ use tracing::info;
 
 use self::builtin::{
     AudioTranscriptionTool, BashTool, EchoTool, FileExtractTool, FileReadTool, FileWriteTool,
-    GraphTool, MathTool, SearchTool, ShellTool, WebSearchTool,
+    GraphTool, MathTool, PromptUserTool, SearchTool, ShellTool, WebSearchTool,
 };
 use crate::persistence::Persistence;
 
@@ -90,6 +90,7 @@ impl ToolRegistry {
         registry.register(Arc::new(FileReadTool::new()));
         registry.register(Arc::new(FileExtractTool::new()));
         registry.register(Arc::new(FileWriteTool::new()));
+        registry.register(Arc::new(PromptUserTool::new()));
         registry.register(Arc::new(SearchTool::new()));
         registry.register(Arc::new(BashTool::new()));
         registry.register(Arc::new(ShellTool::new()));

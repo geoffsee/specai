@@ -1241,14 +1241,43 @@ impl AgentCore {
         result: &ToolResult,
     ) -> Result<()> {
         if let Some(goal_node_id) = goal.node_id {
-            let properties = json!({
+            let timestamp = Utc::now().to_rfc3339();
+            let mut properties = json!({
                 "tool": tool_name,
                 "arguments": args,
                 "success": result.success,
                 "output_preview": preview_text(&result.output),
                 "error": result.error,
-                "timestamp": Utc::now().to_rfc3339(),
+                "timestamp": timestamp,
             });
+
+            let mut prompt_payload: Option<Value> = None;
+            if tool_name == "prompt_user" && result.success {
+                match serde_json::from_str::<Value>(&result.output) {
+                    Ok(payload) => {
+                        if let Some(props) = properties.as_object_mut() {
+                            props.insert("prompt_user_payload".to_string(), payload.clone());
+                            if let Some(response) = payload.get("response") {
+                                props.insert(
+                                    "response_preview".to_string(),
+                                    Value::String(preview_json_value(response)),
+                                );
+                            }
+                        }
+                        prompt_payload = Some(payload);
+                    }
+                    Err(err) => {
+                        warn!("Failed to parse prompt_user payload for graph: {}", err);
+                        if let Some(props) = properties.as_object_mut() {
+                            props.insert(
+                                "prompt_user_parse_error".to_string(),
+                                Value::String(err.to_string()),
+                            );
+                        }
+                    }
+                }
+            }
+
             let tool_node_id = self.persistence.insert_graph_node(
                 &self.session_id,
                 NodeType::ToolResult,
@@ -1265,6 +1294,54 @@ impl AgentCore {
                 None,
                 if result.success { 1.0 } else { 0.1 },
             )?;
+
+            if let Some(payload) = prompt_payload {
+                let response_preview = payload
+                    .get("response")
+                    .map(|v| preview_json_value(v))
+                    .unwrap_or_default();
+
+                let response_properties = json!({
+                    "prompt": payload_field(&payload, "prompt"),
+                    "input_type": payload_field(&payload, "input_type"),
+                    "response": payload_field(&payload, "response"),
+                    "display_value": payload_field(&payload, "display_value"),
+                    "selections": payload_field(&payload, "selections"),
+                    "metadata": payload_field(&payload, "metadata"),
+                    "used_default": payload_field(&payload, "used_default"),
+                    "used_prefill": payload_field(&payload, "used_prefill"),
+                    "response_preview": response_preview,
+                    "timestamp": timestamp,
+                });
+
+                let response_node_id = self.persistence.insert_graph_node(
+                    &self.session_id,
+                    NodeType::Event,
+                    "UserInput",
+                    &response_properties,
+                    None,
+                )?;
+
+                self.persistence.insert_graph_edge(
+                    &self.session_id,
+                    tool_node_id,
+                    response_node_id,
+                    EdgeType::Produces,
+                    Some("captures_input"),
+                    None,
+                    1.0,
+                )?;
+
+                self.persistence.insert_graph_edge(
+                    &self.session_id,
+                    response_node_id,
+                    goal_node_id,
+                    EdgeType::RelatesTo,
+                    Some("addresses_goal"),
+                    None,
+                    0.9,
+                )?;
+            }
         }
         Ok(())
     }
@@ -2138,6 +2215,25 @@ fn preview_text(content: &str) -> String {
     } else {
         preview
     }
+}
+
+fn preview_json_value(value: &Value) -> String {
+    match value {
+        Value::String(text) => preview_text(text),
+        Value::Null => "null".to_string(),
+        _ => {
+            let raw = value.to_string();
+            if raw.len() > 80 {
+                format!("{}...", &raw[..77])
+            } else {
+                raw
+            }
+        }
+    }
+}
+
+fn payload_field(payload: &Value, key: &str) -> Value {
+    payload.get(key).cloned().unwrap_or(Value::Null)
 }
 
 #[cfg(test)]
