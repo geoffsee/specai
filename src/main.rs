@@ -6,7 +6,22 @@ use tracing_subscriber;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize CLI state (loads config and persistence)
-    let mut cli = CliState::initialize()?;
+    let mut cli = match CliState::initialize() {
+        Ok(cli) => cli,
+        Err(e) => {
+            // Check if this is a database lock error (another instance running)
+            let error_chain = format!("{:#}", e);
+            if error_chain.contains("Could not set lock") || error_chain.contains("Conflicting lock") {
+                eprintln!("Error: Another instance of spec-ai is already running.");
+                eprintln!();
+                eprintln!("Only one instance can access the database at a time.");
+                eprintln!("Please close the other instance or wait for it to finish.");
+                std::process::exit(1);
+            }
+            // For other errors, return the original error
+            return Err(e);
+        }
+    };
 
     // Initialize logging based on config
     let log_level = cli.config.logging.level.to_uppercase();
