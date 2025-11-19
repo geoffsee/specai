@@ -38,7 +38,7 @@ pub enum Command {
     Listen(Option<String>, Option<u64>), // scenario, duration in seconds
     PasteStart,
     RunSpec(PathBuf),
-    Init,
+    Init(Option<Vec<String>>), // optional plugins list
     Message(String),
     Empty,
 }
@@ -114,7 +114,24 @@ pub fn parse_command(input: &str) -> Command {
                 Command::Listen(scenario, duration)
             }
             "paste" => Command::PasteStart,
-            "init" => Command::Init,
+            "init" => {
+                let plugins = if let Some(arg) = parts.next() {
+                    if arg.starts_with("--plugins=") {
+                        Some(
+                            arg.strip_prefix("--plugins=")
+                                .unwrap_or("")
+                                .split(',')
+                                .map(|p| p.trim().to_string())
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                Command::Init(plugins)
+            },
             "spec" => {
                 let args: Vec<&str> = parts.collect();
                 if args.is_empty() {
@@ -498,7 +515,7 @@ impl CliState {
                 let output = self.run_spec_command(&path).await?;
                 Ok(Some(output))
             }
-            Command::Init => {
+            Command::Init(plugins) => {
                 if !self.init_allowed {
                     return Ok(Some(
                         "The /init command must be the first action in a session. Start a new session to run it again."
@@ -507,7 +524,7 @@ impl CliState {
                 }
                 let bootstrapper =
                     BootstrapSelf::from_environment(&self.persistence, self.agent.session_id())?;
-                let outcome = bootstrapper.run()?;
+                let outcome = bootstrapper.run_with_plugins(plugins.clone())?;
                 self.init_allowed = false;
                 Ok(Some(format!(
                     "Knowledge graph bootstrap complete for '{}': {} nodes and {} edges captured ({} components, {} documents).",
@@ -736,7 +753,7 @@ impl CliState {
             }
             Command::GraphShow(None) => "Status: inspecting graph".to_string(),
             Command::GraphClear => "Status: clearing session graph".to_string(),
-            Command::Init => "Status: bootstrapping repository graph".to_string(),
+            Command::Init(_) => "Status: bootstrapping repository graph".to_string(),
             Command::Listen(scenario, duration) => {
                 let mut status = "Status: starting audio transcription".to_string();
                 if let Some(s) = scenario {
@@ -849,7 +866,15 @@ mod tests {
         assert_eq!(parse_command("/config show"), Command::ConfigShow);
         assert_eq!(parse_command("/agents"), Command::ListAgents);
         assert_eq!(parse_command("/list"), Command::ListAgents);
-        assert_eq!(parse_command("/init"), Command::Init);
+        assert_eq!(parse_command("/init"), Command::Init(None));
+        assert_eq!(
+            parse_command("/init --plugins=rust-cargo"),
+            Command::Init(Some(vec!["rust-cargo".to_string()]))
+        );
+        assert_eq!(
+            parse_command("/init --plugins=rust-cargo,python"),
+            Command::Init(Some(vec!["rust-cargo".to_string(), "python".to_string()]))
+        );
         assert_eq!(
             parse_command("/switch coder"),
             Command::SwitchAgent("coder".into())
