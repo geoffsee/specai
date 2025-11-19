@@ -1,6 +1,6 @@
 # spec-ai
 
-> **WARNING:** Execute in a virtualized environment or risk arbitrary system devestation. `spec-ai` can make direct and unpredictable changes to the system it runs on. Policies are currently permissive by default. A future version solves this issue. 
+> **WARNING:** Execute in a virtualized environment or risk arbitrary system devastation. `spec-ai` can make direct and unpredictable changes to the system it runs on. Policies are currently permissive by default. A future version solves this issue. 
 
 An agentic AI CLI tool written in Rust.
 
