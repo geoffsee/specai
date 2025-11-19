@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use directories::BaseDirs;
 use duckdb::{params, Connection};
 use serde_json::Value as JsonValue;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::types::{
@@ -21,7 +21,7 @@ pub struct Persistence {
 impl Persistence {
     /// Create or open the database at the provided path and run migrations.
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self> {
-        let db_path = db_path.as_ref().to_path_buf();
+        let db_path = expand_tilde(db_path.as_ref())?;
         if let Some(dir) = db_path.parent() {
             std::fs::create_dir_all(dir).context("creating DB directory")?;
         }
@@ -252,6 +252,40 @@ impl Persistence {
         } else {
             Ok(None)
         }
+    }
+}
+
+fn expand_tilde(path: &Path) -> Result<PathBuf> {
+    let path_str = path.to_string_lossy();
+    if path_str == "~" {
+        let base = BaseDirs::new().context("base directories not available")?;
+        Ok(base.home_dir().to_path_buf())
+    } else if let Some(stripped) = path_str.strip_prefix("~/") {
+        let base = BaseDirs::new().context("base directories not available")?;
+        Ok(base.home_dir().join(stripped))
+    } else {
+        Ok(path.to_path_buf())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn expands_home_directory_prefix() {
+        let base = BaseDirs::new().expect("home directory available");
+        let expected = base.home_dir().join("demo.db");
+        let result = expand_tilde(Path::new("~/demo.db")).expect("path expansion succeeds");
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn leaves_regular_paths_unchanged() {
+        let input = Path::new("relative/path.db");
+        let result = expand_tilde(input).expect("path expansion succeeds");
+        assert_eq!(result, input);
     }
 }
 
