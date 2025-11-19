@@ -349,7 +349,7 @@ impl CliState {
                 // For now, just show instructions for enabling graph features
                 // Since modifying the agent at runtime requires complex rebuilding
                 Ok(Some(
-                    "To enable knowledge graph features, update your config.toml:\n\n\
+                    "To enable knowledge graph features, update your spec-ai.config.toml:\n\n\
                     [agents.your_agent_name]\n\
                     enable_graph = true\n\
                     graph_memory = true\n\
@@ -365,7 +365,7 @@ impl CliState {
             Command::GraphDisable => {
                 // For now, just show instructions for disabling graph features
                 Ok(Some(
-                    "To disable knowledge graph features, update your config.toml:\n\n\
+                    "To disable knowledge graph features, update your spec-ai.config.toml:\n\n\
                     [agents.your_agent_name]\n\
                     enable_graph = false\n\n\
                     Then run: /config reload"

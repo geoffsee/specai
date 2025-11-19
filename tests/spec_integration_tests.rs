@@ -53,7 +53,7 @@ path = "test.duckdb"
 temperature = 0.7
 "#;
 
-    let config_path = test_dir.join("config.toml");
+    let config_path = test_dir.join("spec-ai.config.toml");
     fs::write(&config_path, config_content).expect("Failed to write config file");
 
     // Create a test spec file

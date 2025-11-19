@@ -77,7 +77,7 @@ fn test_env_override_precedence() {
     }
 
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("config.toml");
+    let config_path = temp_dir.path().join("spec-ai.config.toml");
 
     let config_content = r#"
 [model]
@@ -115,7 +115,7 @@ level = "info"
 #[test]
 fn test_defaults_fill_missing_fields() {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("config.toml");
+    let config_path = temp_dir.path().join("spec-ai.config.toml");
 
     // Minimal config with only one field
     let config_content = r#"

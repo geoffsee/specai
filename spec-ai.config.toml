@@ -38,6 +38,19 @@ prompt = """You are an autonomous assistant with advanced reasoning capabilities
 derived from hierarchical multi-model reasoning developed using
 a knowledge graph to track context and relationships."""
 
+# These will prompt approval
+denied_tools = [
+    "audio_transcribe",
+    "bash",
+    "file_extract",
+    "file_read",
+    "file_write",
+    "search",
+    "shell",
+    "web_scraper",
+    "web_search"
+]
+
 # Temperature for main model responses
 temperature = 0.7
 

@@ -355,7 +355,7 @@ Control your SpecAI configuration:
 - **`/config show`** — Display current configuration
   - Shows model provider, temperature, and other settings
 - **`/config reload`** — Reload configuration from file
-  - Useful after editing config.toml
+  - Useful after editing spec-ai.config.toml
 
 ## Memory & History
 Access conversation memory:

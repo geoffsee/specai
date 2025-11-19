@@ -5,9 +5,16 @@
 
 use crate::config::agent::AgentProfile;
 use anyhow::Result;
+use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+/// Embedded default configuration file
+const DEFAULT_CONFIG: &str = include_str!("../../spec-ai.config.toml");
+
+/// Configuration file name
+const CONFIG_FILE_NAME: &str = "spec-ai.config.toml";
 
 /// Top-level application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,10 +46,19 @@ pub struct AppConfig {
 impl AppConfig {
     /// Load configuration from file or create a default configuration
     pub fn load() -> Result<Self> {
-        // Try to load from config.toml in current directory
-        if let Ok(content) = std::fs::read_to_string("config.toml") {
+        // Try to load from spec-ai.config.toml in current directory
+        if let Ok(content) = std::fs::read_to_string(CONFIG_FILE_NAME) {
             return toml::from_str(&content)
-                .map_err(|e| anyhow::anyhow!("Failed to parse config.toml: {}", e));
+                .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", CONFIG_FILE_NAME, e));
+        }
+
+        // Try to load from ~/.spec-ai/spec-ai.config.toml
+        if let Ok(base_dirs) = BaseDirs::new().ok_or(anyhow::anyhow!("Could not determine home directory")) {
+            let home_config = base_dirs.home_dir().join(".spec-ai").join(CONFIG_FILE_NAME);
+            if let Ok(content) = std::fs::read_to_string(&home_config) {
+                return toml::from_str(&content)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", home_config.display(), e));
+            }
         }
 
         // Try to load from environment variable CONFIG_PATH
@@ -53,8 +69,18 @@ impl AppConfig {
             }
         }
 
-        // Return default configuration
-        Ok(Self::default())
+        // No config file found - create one from embedded default
+        eprintln!("No configuration file found. Creating {} with default settings...", CONFIG_FILE_NAME);
+        if let Err(e) = std::fs::write(CONFIG_FILE_NAME, DEFAULT_CONFIG) {
+            eprintln!("Warning: Could not create {}: {}", CONFIG_FILE_NAME, e);
+            eprintln!("Continuing with default configuration in memory.");
+        } else {
+            eprintln!("Created {}. You can edit this file to customize your settings.", CONFIG_FILE_NAME);
+        }
+
+        // Parse and return the embedded default config
+        toml::from_str(DEFAULT_CONFIG)
+            .map_err(|e| anyhow::anyhow!("Failed to parse embedded default config: {}", e))
     }
 
     /// Load configuration from a specific file path

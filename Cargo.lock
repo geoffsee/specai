@@ -3862,7 +3862,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai"
-version = "0.1.21"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "async-openai",

@@ -437,10 +437,10 @@ async fn test_config_reload() {
     let _ = cli.handle_line("Before reload").await.unwrap();
 
     // Note: This tests that reload doesn't crash, not that it actually reloads from file
-    // In real usage, this would reload from config.toml
+    // In real usage, this would reload from spec-ai.config.toml
     let reload_result = cli.handle_line("/config reload").await;
 
-    // Reload should succeed (loads default config since we don't have config.toml in test)
+    // Reload should succeed (loads default config since we don't have spec-ai.config.toml in test)
     // or fail gracefully
     match reload_result {
         Ok(Some(msg)) => {
@@ -448,7 +448,7 @@ async fn test_config_reload() {
             assert!(!msg.is_empty());
         }
         Err(_) => {
-            // Config reload failed (expected in test environment without config.toml)
+            // Config reload failed (expected in test environment without spec-ai.config.toml)
             // This is acceptable behavior
         }
         _ => {}
