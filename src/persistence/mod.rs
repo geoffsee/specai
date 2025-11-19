@@ -32,6 +32,14 @@ impl Persistence {
         })
     }
 
+    /// Checkpoint the database to ensure all WAL data is written to the main database file.
+    /// Call this before shutdown to ensure clean database state.
+    pub fn checkpoint(&self) -> Result<()> {
+        let conn = self.conn();
+        conn.execute_batch("CHECKPOINT;")
+            .context("checkpointing database")
+    }
+
     /// Creates or opens the default database at ~/.spec-ai/agent_data.duckdb
     pub fn new_default() -> Result<Self> {
         let base = BaseDirs::new().context("base directories not available")?;

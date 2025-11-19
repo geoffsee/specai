@@ -14,19 +14,33 @@ pub fn run(conn: &Connection) -> Result<()> {
     .context("creating schema_migrations table")?;
 
     let current = current_version(conn)?;
+    let mut migrations_applied = false;
+
     if current < 1 {
         apply_v1(conn)?;
         set_version(conn, 1)?;
+        migrations_applied = true;
     }
 
     if current < 2 {
         apply_v2(conn)?;
         set_version(conn, 2)?;
+        migrations_applied = true;
     }
 
     if current < 3 {
         apply_v3(conn)?;
         set_version(conn, 3)?;
+        migrations_applied = true;
+    }
+
+    // Force checkpoint after migrations to ensure WAL is merged into the database file.
+    // This prevents ALTER TABLE operations from being stuck in the WAL, which can cause
+    // "no default database set" errors during WAL replay on subsequent startups.
+    // See: https://github.com/duckdb/duckdb/discussions/10200
+    if migrations_applied {
+        conn.execute_batch("FORCE CHECKPOINT;")
+            .context("forcing checkpoint after migrations")?;
     }
 
     Ok(())

@@ -631,6 +631,10 @@ impl CliState {
             }
             self.set_status_idle();
         }
+
+        // Checkpoint database before exiting to ensure all WAL data is written
+        let _ = self.persistence.checkpoint();
+
         Ok(())
     }
 
