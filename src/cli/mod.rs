@@ -131,7 +131,7 @@ pub fn parse_command(input: &str) -> Command {
                     None
                 };
                 Command::Init(plugins)
-            },
+            }
             "spec" => {
                 let args: Vec<&str> = parts.collect();
                 if args.is_empty() {

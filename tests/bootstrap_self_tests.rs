@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde_json::json;
 use spec_ai::bootstrap_self::BootstrapSelf;
 use spec_ai::persistence::Persistence;
-use spec_ai::types::{NodeType};
+use spec_ai::types::NodeType;
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;

@@ -45,8 +45,8 @@ const IGNORED_DIRS: &[&str] = &[
 ];
 
 const CODE_EXTENSIONS: &[&str] = &[
-    "rs", "ts", "tsx", "js", "jsx", "py", "rb", "go", "c", "cpp", "cc", "cxx", "h", "hpp",
-    "java", "kt", "scala", "php", "swift", "m", "mm", "cs", "vb", "f90", "pl", "sh", "bash",
+    "rs", "ts", "tsx", "js", "jsx", "py", "rb", "go", "c", "cpp", "cc", "cxx", "h", "hpp", "java",
+    "kt", "scala", "php", "swift", "m", "mm", "cs", "vb", "f90", "pl", "sh", "bash",
 ];
 
 const DOC_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "rst", "adoc", "asciidoc"];
@@ -159,10 +159,7 @@ impl UniversalCodePlugin {
         let mut file_count = 0;
         let mut language_counts: HashMap<String, usize> = HashMap::new();
 
-        for entry in WalkDir::new(repo_root)
-            .into_iter()
-            .filter_map(Result::ok)
-        {
+        for entry in WalkDir::new(repo_root).into_iter().filter_map(Result::ok) {
             if file_count >= MAX_FILES_SCANNED {
                 break;
             }
@@ -220,7 +217,10 @@ impl UniversalCodePlugin {
             }
 
             // Classify by path patterns
-            if rel_path.contains("/test") || rel_path.contains("_test.") || rel_path.contains("_spec.") {
+            if rel_path.contains("/test")
+                || rel_path.contains("_test.")
+                || rel_path.contains("_spec.")
+            {
                 classification.tests.push(rel_path.clone());
             } else if rel_path.contains("/examples/") {
                 classification.examples.push(rel_path);
@@ -228,10 +228,8 @@ impl UniversalCodePlugin {
         }
 
         classification.total_files = file_count;
-        classification.detected_languages = language_counts
-            .into_iter()
-            .map(|(lang, _)| lang)
-            .collect();
+        classification.detected_languages =
+            language_counts.into_iter().map(|(lang, _)| lang).collect();
 
         // Collect components (top-level directories)
         self.identify_components(repo_root, &mut classification)?;
@@ -245,7 +243,11 @@ impl UniversalCodePlugin {
         Ok(classification)
     }
 
-    fn identify_components(&self, repo_root: &Path, classification: &mut FileClassification) -> Result<()> {
+    fn identify_components(
+        &self,
+        repo_root: &Path,
+        classification: &mut FileClassification,
+    ) -> Result<()> {
         let mut components = Vec::new();
 
         for entry in fs::read_dir(repo_root)? {
@@ -271,7 +273,11 @@ impl UniversalCodePlugin {
         Ok(())
     }
 
-    fn identify_documents(&self, repo_root: &Path, classification: &mut FileClassification) -> Result<()> {
+    fn identify_documents(
+        &self,
+        repo_root: &Path,
+        classification: &mut FileClassification,
+    ) -> Result<()> {
         let mut documents = Vec::new();
 
         // Check for common documentation files
@@ -334,12 +340,19 @@ impl UniversalCodePlugin {
         Ok(())
     }
 
-    fn detect_frameworks(&self, repo_root: &Path, classification: &mut FileClassification) -> Result<()> {
+    fn detect_frameworks(
+        &self,
+        repo_root: &Path,
+        classification: &mut FileClassification,
+    ) -> Result<()> {
         let mut frameworks = HashSet::new();
 
         // Check manifest files for dependencies
         let manifest_files = vec![
-            ("Cargo.toml", vec!["tokio", "actix", "rocket", "axum", "serde", "diesel"]),
+            (
+                "Cargo.toml",
+                vec!["tokio", "actix", "rocket", "axum", "serde", "diesel"],
+            ),
             (
                 "package.json",
                 vec!["react", "vue", "angular", "express", "nextjs", "fastapi"],
@@ -367,7 +380,11 @@ impl UniversalCodePlugin {
         Ok(())
     }
 
-    fn analyze_intent(&self, repo_root: &Path, classification: &FileClassification) -> Result<IntentAnalysis> {
+    fn analyze_intent(
+        &self,
+        repo_root: &Path,
+        classification: &FileClassification,
+    ) -> Result<IntentAnalysis> {
         // Simulate fast model analysis by reading key files
         let mut intent = IntentAnalysis {
             project_name: self.extract_project_name(repo_root),
@@ -380,19 +397,23 @@ impl UniversalCodePlugin {
         if let Ok(readme_content) = fs::read_to_string(repo_root.join("README.md")) {
             let lines: Vec<&str> = readme_content.lines().collect();
             if let Some(first_line) = lines.first() {
-                intent.purpose_statement = first_line
-                    .trim_start_matches('#')
-                    .trim()
-                    .to_string();
+                intent.purpose_statement = first_line.trim_start_matches('#').trim().to_string();
             }
         }
 
         // Infer domain from languages and frameworks
-        intent.project_domain = infer_domain(&classification.detected_languages, &classification.detected_frameworks);
+        intent.project_domain = infer_domain(
+            &classification.detected_languages,
+            &classification.detected_frameworks,
+        );
 
         // Extract key concepts from detected frameworks and languages
-        intent.key_concepts.extend(classification.detected_frameworks.clone());
-        intent.key_concepts.extend(classification.detected_languages.clone());
+        intent
+            .key_concepts
+            .extend(classification.detected_frameworks.clone());
+        intent
+            .key_concepts
+            .extend(classification.detected_languages.clone());
 
         if intent.purpose_statement.is_empty() {
             intent.purpose_statement = format!(
@@ -417,21 +438,24 @@ impl UniversalCodePlugin {
     ) -> Result<SemanticAnalysis> {
         let mut semantic = SemanticAnalysis {
             architecture_pattern: infer_architecture_pattern(&classification.components),
-            complexity_estimate: estimate_complexity(classification.total_files, classification.source_code.len()),
+            complexity_estimate: estimate_complexity(
+                classification.total_files,
+                classification.source_code.len(),
+            ),
             key_abstractions: Vec::new(),
             critical_features: Vec::new(),
         };
 
         // Add key abstractions based on detected patterns
         for component in &classification.components {
-            semantic
-                .key_abstractions
-                .push(component.name.clone());
+            semantic.key_abstractions.push(component.name.clone());
         }
 
         // Identify critical features
         if classification.source_code.len() > 0 {
-            semantic.critical_features.push("Core Implementation".to_string());
+            semantic
+                .critical_features
+                .push("Core Implementation".to_string());
         }
         if classification.tests.len() > 0 {
             semantic.critical_features.push("Test Suite".to_string());
@@ -589,10 +613,7 @@ impl UniversalCodePlugin {
         doc.push_str(&format!("## Overview\n\n{}\n\n", intent.purpose_statement));
 
         doc.push_str("## Project Information\n\n");
-        doc.push_str(&format!(
-            "- **Domain**: {}\n",
-            intent.project_domain
-        ));
+        doc.push_str(&format!("- **Domain**: {}\n", intent.project_domain));
         doc.push_str(&format!(
             "- **Architecture**: {}\n",
             semantic.architecture_pattern
@@ -610,7 +631,10 @@ impl UniversalCodePlugin {
         }
 
         doc.push_str("\n## File Structure\n\n");
-        doc.push_str(&format!("- **Total Files**: {}\n", classification.total_files));
+        doc.push_str(&format!(
+            "- **Total Files**: {}\n",
+            classification.total_files
+        ));
         doc.push_str(&format!(
             "- **Source Files**: {}\n",
             classification.source_code.len()
@@ -817,7 +841,12 @@ fn infer_architecture_pattern(components: &[ComponentInfo]) -> String {
 
     if component_names.contains(&"microservices") {
         "microservices".to_string()
-    } else if component_names.iter().filter(|c| c.contains("service")).count() > 2 {
+    } else if component_names
+        .iter()
+        .filter(|c| c.contains("service"))
+        .count()
+        > 2
+    {
         "service-oriented".to_string()
     } else if component_names.contains(&"api") {
         "api-driven".to_string()

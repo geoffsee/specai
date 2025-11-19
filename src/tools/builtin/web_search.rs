@@ -16,7 +16,10 @@ const HARD_MAX_RESULTS: usize = 20;
 /// Extra fallback search engines when DDG returns no results
 const FALLBACK_ENGINES: &[(&str, &str)] = &[
     ("Brave Search", "https://search.brave.com/search?q="),
-    ("Wikipedia", "https://en.wikipedia.org/wiki/Special:Search?search="),
+    (
+        "Wikipedia",
+        "https://en.wikipedia.org/wiki/Special:Search?search=",
+    ),
     ("StartPage", "https://www.startpage.com/sp/search?query="),
     ("Bing", "https://www.bing.com/search?q="),
     ("Google", "https://www.google.com/search?q="),
@@ -104,11 +107,8 @@ pub struct WebSearchTool {
 
 impl WebSearchTool {
     pub fn new() -> Self {
-        static APP_USER_AGENT: &str = concat!(
-        env!("CARGO_PKG_NAME"),
-        "/",
-        env!("CARGO_PKG_VERSION"),
-        );
+        static APP_USER_AGENT: &str =
+            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
         // Check for Brave Search API key in environment
         let brave_api_key = std::env::var("BRAVE_API_KEY").ok();
@@ -169,7 +169,10 @@ impl WebSearchTool {
             .iter()
             .map(|(name, base)| WebSearchResultEntry {
                 title: format!("{} search for '{}'", name, query),
-                snippet: format!("Fallback to {} because DuckDuckGo returned no results.", name),
+                snippet: format!(
+                    "Fallback to {} because DuckDuckGo returned no results.",
+                    name
+                ),
                 url: format!("{}{}", base, encoded),
             })
             .collect()
@@ -191,8 +194,16 @@ impl WebSearchTool {
                 .unwrap_or_else(|| Self::fallback_query_url(query))
         };
 
-        if let Some(answer) = response.answer.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            let url = fallback_url(response.abstract_url.clone(), response.definition_url.clone());
+        if let Some(answer) = response
+            .answer
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            let url = fallback_url(
+                response.abstract_url.clone(),
+                response.definition_url.clone(),
+            );
             return Some(WebSearchResultEntry {
                 title: format!("{} (direct answer)", heading),
                 snippet: answer.to_string(),
@@ -206,7 +217,10 @@ impl WebSearchTool {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
         {
-            let url = fallback_url(response.abstract_url.clone(), response.definition_url.clone());
+            let url = fallback_url(
+                response.abstract_url.clone(),
+                response.definition_url.clone(),
+            );
             return Some(WebSearchResultEntry {
                 title: format!("{} (abstract)", heading),
                 snippet: abs_text.to_string(),
@@ -220,7 +234,10 @@ impl WebSearchTool {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
         {
-            let url = fallback_url(response.definition_url.clone(), response.abstract_url.clone());
+            let url = fallback_url(
+                response.definition_url.clone(),
+                response.abstract_url.clone(),
+            );
             return Some(WebSearchResultEntry {
                 title: format!("{} (definition)", heading),
                 snippet: definition.to_string(),
@@ -281,10 +298,7 @@ impl WebSearchTool {
             })
             .collect();
 
-        scored.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(max_results);
         *results = scored.into_iter().map(|(entry, _)| entry).collect();
         Ok(())
@@ -296,7 +310,9 @@ impl WebSearchTool {
         args: &WebSearchArgs,
         max_results: usize,
     ) -> Result<Vec<WebSearchResultEntry>> {
-        let api_key = self.brave_api_key.as_ref()
+        let api_key = self
+            .brave_api_key
+            .as_ref()
             .ok_or_else(|| anyhow!("Brave API key not configured"))?;
 
         let mut effective_query = args.query.trim().to_string();
@@ -306,10 +322,14 @@ impl WebSearchTool {
 
         debug!("Querying Brave Search: {}", effective_query);
 
-        let mut request = self.client
+        let mut request = self
+            .client
             .get(BRAVE_SEARCH_ENDPOINT)
             .header("X-Subscription-Token", api_key)
-            .query(&[("q", effective_query.as_str()), ("count", &max_results.to_string())]);
+            .query(&[
+                ("q", effective_query.as_str()),
+                ("count", &max_results.to_string()),
+            ]);
 
         if let Some(region) = &args.region {
             request = request.query(&[("country", region.as_str())]);
@@ -436,7 +456,11 @@ impl WebSearchTool {
                     let mut filtered_results = results;
                     if self.embeddings.is_some() {
                         if let Err(err) = self
-                            .filter_results_with_embeddings(&args.query, &mut filtered_results, max_results)
+                            .filter_results_with_embeddings(
+                                &args.query,
+                                &mut filtered_results,
+                                max_results,
+                            )
                             .await
                         {
                             warn!(

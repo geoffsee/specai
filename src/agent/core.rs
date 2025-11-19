@@ -309,7 +309,10 @@ impl AgentCore {
 
                         // Check if tool is allowed
                         if !self.is_tool_allowed(tool_name) {
-                            warn!("Tool '{}' is not allowed by agent policy - prompting user", tool_name);
+                            warn!(
+                                "Tool '{}' is not allowed by agent policy - prompting user",
+                                tool_name
+                            );
 
                             // Prompt user for permission
                             match self.prompt_for_tool_permission(tool_name).await {
@@ -318,10 +321,8 @@ impl AgentCore {
                                     // Permission granted, continue to execute the tool below
                                 }
                                 Ok(false) => {
-                                    let error_msg = format!(
-                                        "Tool '{}' was denied by user",
-                                        tool_name
-                                    );
+                                    let error_msg =
+                                        format!("Tool '{}' was denied by user", tool_name);
                                     warn!("{}", error_msg);
                                     tool_invocations.push(ToolInvocation {
                                         name: tool_name.clone(),
@@ -1910,7 +1911,8 @@ impl AgentCore {
         info!("Requesting user permission for tool: {}", tool_name);
 
         // Get the tool to show its description
-        let tool_description = self.tool_registry
+        let tool_description = self
+            .tool_registry
             .get(tool_name)
             .map(|t| t.description().to_string())
             .unwrap_or_else(|| "No description available".to_string());
@@ -1931,22 +1933,27 @@ impl AgentCore {
                 info!("prompt_user output: {}", result.output);
 
                 // Parse the JSON response from prompt_user
-                let allowed = if let Ok(response_json) = serde_json::from_str::<Value>(&result.output) {
-                    info!("Parsed JSON response: {:?}", response_json);
-                    // Extract the boolean value from the response (field is "response" not "value")
-                    let value = response_json["response"].as_bool();
-                    info!("Extracted boolean value: {:?}", value);
-                    value.unwrap_or(false)
-                } else {
-                    info!("Failed to parse JSON, trying plain text fallback");
-                    // Fallback: try to parse as plain text
-                    let response = result.output.trim().to_lowercase();
-                    let parsed = response == "yes" || response == "y" || response == "true";
-                    info!("Plain text parse result for '{}': {}", response, parsed);
-                    parsed
-                };
+                let allowed =
+                    if let Ok(response_json) = serde_json::from_str::<Value>(&result.output) {
+                        info!("Parsed JSON response: {:?}", response_json);
+                        // Extract the boolean value from the response (field is "response" not "value")
+                        let value = response_json["response"].as_bool();
+                        info!("Extracted boolean value: {:?}", value);
+                        value.unwrap_or(false)
+                    } else {
+                        info!("Failed to parse JSON, trying plain text fallback");
+                        // Fallback: try to parse as plain text
+                        let response = result.output.trim().to_lowercase();
+                        let parsed = response == "yes" || response == "y" || response == "true";
+                        info!("Plain text parse result for '{}': {}", response, parsed);
+                        parsed
+                    };
 
-                info!("User {} tool '{}'", if allowed { "allowed" } else { "denied" }, tool_name);
+                info!(
+                    "User {} tool '{}'",
+                    if allowed { "allowed" } else { "denied" },
+                    tool_name
+                );
 
                 if allowed {
                     // Add to allowed tools permanently

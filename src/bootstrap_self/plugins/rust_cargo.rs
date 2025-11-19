@@ -219,8 +219,14 @@ impl RustCargoPlugin {
             .and_then(|v| v.as_str())
             .unwrap_or("0.0.0")
             .to_string();
-        let description = package.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let edition = package.get("edition").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let description = package
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let edition = package
+            .get("edition")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         let dependencies = extract_dependency_section(manifest_value.get("dependencies"));
         let dev_dependencies = extract_dependency_section(manifest_value.get("dev-dependencies"));
@@ -249,8 +255,8 @@ impl RustCargoPlugin {
 
     fn collect_components(&self, repo_root: &Path) -> Result<Vec<RepoComponent>> {
         let mut components = Vec::new();
-        let entries = fs::read_dir(repo_root)
-            .with_context(|| format!("reading {}", repo_root.display()))?;
+        let entries =
+            fs::read_dir(repo_root).with_context(|| format!("reading {}", repo_root.display()))?;
 
         for entry in entries {
             let entry = entry?;
@@ -352,7 +358,11 @@ impl RustCargoPlugin {
             {
                 if entry.file_type().is_file()
                     && matches!(
-                        entry.path().extension().and_then(OsStr::to_str).unwrap_or(""),
+                        entry
+                            .path()
+                            .extension()
+                            .and_then(OsStr::to_str)
+                            .unwrap_or(""),
                         "md" | "txt"
                     )
                 {

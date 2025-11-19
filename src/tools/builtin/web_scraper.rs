@@ -40,11 +40,8 @@ pub struct WebScraperTool {
 
 impl WebScraperTool {
     pub fn new() -> Self {
-        static APP_USER_AGENT: &str = concat!(
-            env!("CARGO_PKG_NAME"),
-            "/",
-            env!("CARGO_PKG_VERSION"),
-        );
+        static APP_USER_AGENT: &str =
+            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
         Self {
             user_agent: APP_USER_AGENT.to_string(),
@@ -97,15 +94,15 @@ impl WebScraperTool {
         content.trim().to_string()
     }
 
-    async fn scrape(
-        &self,
-        args: &WebScraperArgs,
-    ) -> Result<WebScraperResponse> {
+    async fn scrape(&self, args: &WebScraperArgs) -> Result<WebScraperResponse> {
         let max_pages = args.max_pages.unwrap_or(DEFAULT_MAX_PAGES);
         let depth = args.depth.unwrap_or(DEFAULT_DEPTH);
         let extract_links = args.extract_links.unwrap_or(false);
 
-        debug!("Scraping URL: {} (max_pages: {}, depth: {})", args.url, max_pages, depth);
+        debug!(
+            "Scraping URL: {} (max_pages: {}, depth: {})",
+            args.url, max_pages, depth
+        );
 
         // Configure spider website
         let mut website = Website::new(&args.url);
@@ -236,7 +233,10 @@ impl Tool for WebScraperTool {
             }
             Err(e) => {
                 warn!("Web scraping failed for {}: {}", args.url, e);
-                Ok(ToolResult::failure(format!("Failed to scrape {}: {}", args.url, e)))
+                Ok(ToolResult::failure(format!(
+                    "Failed to scrape {}: {}",
+                    args.url, e
+                )))
             }
         }
     }
@@ -281,6 +281,9 @@ mod tests {
 
         let params = tool.parameters();
         assert!(params["properties"]["url"].is_object());
-        assert!(params["required"].as_array().unwrap().contains(&serde_json::json!("url")));
+        assert!(params["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("url")));
     }
 }

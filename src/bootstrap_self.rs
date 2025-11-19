@@ -45,10 +45,8 @@ impl<'a> BootstrapSelf<'a> {
 
     /// Initialize the plugin registry with default plugins
     fn init_plugins(&self) -> Result<()> {
-        self.plugins
-            .register(Arc::new(RustCargoPlugin))?;
-        self.plugins
-            .register(Arc::new(UniversalCodePlugin))?;
+        self.plugins.register(Arc::new(RustCargoPlugin))?;
+        self.plugins.register(Arc::new(UniversalCodePlugin))?;
         Ok(())
     }
 
@@ -98,13 +96,25 @@ impl<'a> BootstrapSelf<'a> {
             }
 
             // Extract metadata from first plugin that provides it
-            if let Some(name) = outcome.metadata.get("repository_name").and_then(|v| v.as_str()) {
+            if let Some(name) = outcome
+                .metadata
+                .get("repository_name")
+                .and_then(|v| v.as_str())
+            {
                 repository_name = name.to_string();
             }
-            if let Some(count) = outcome.metadata.get("component_count").and_then(|v| v.as_u64()) {
+            if let Some(count) = outcome
+                .metadata
+                .get("component_count")
+                .and_then(|v| v.as_u64())
+            {
                 component_count = component_count.max(count as usize);
             }
-            if let Some(count) = outcome.metadata.get("document_count").and_then(|v| v.as_u64()) {
+            if let Some(count) = outcome
+                .metadata
+                .get("document_count")
+                .and_then(|v| v.as_u64())
+            {
                 document_count = document_count.max(count as usize);
             }
         }

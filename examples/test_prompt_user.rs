@@ -13,7 +13,9 @@ async fn main() -> Result<()> {
     println!("=== Testing prompt_user Tool ===\n");
 
     let registry = ToolRegistry::with_builtin_tools(None, None);
-    let prompt_tool = registry.get("prompt_user").expect("prompt_user should exist");
+    let prompt_tool = registry
+        .get("prompt_user")
+        .expect("prompt_user should exist");
 
     // Test with boolean input and prefilled response
     println!("Test: Boolean input with prefilled 'yes' response");

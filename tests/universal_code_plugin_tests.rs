@@ -15,7 +15,9 @@ fn create_polyglot_repo(root: &Path) -> Result<()> {
     fs::create_dir_all(root.join("docs"))?;
 
     // Rust files
-    fs::write(root.join("Cargo.toml"), r#"
+    fs::write(
+        root.join("Cargo.toml"),
+        r#"
 [package]
 name = "universal-test"
 version = "1.0.0"
@@ -28,7 +30,8 @@ actix-web = "4.0"
 
 [dev-dependencies]
 pytest = "1.0"
-"#)?;
+"#,
+    )?;
 
     fs::write(
         root.join("src/rust/main.rs"),
@@ -56,8 +59,14 @@ pytest = "1.0"
     )?;
 
     // Test files
-    fs::write(root.join("tests/test_utils.rs"), "#[test]\nfn test() { assert!(true); }")?;
-    fs::write(root.join("tests/test_main.py"), "def test_example():\n    assert True")?;
+    fs::write(
+        root.join("tests/test_utils.rs"),
+        "#[test]\nfn test() { assert!(true); }",
+    )?;
+    fs::write(
+        root.join("tests/test_main.py"),
+        "def test_example():\n    assert True",
+    )?;
 
     // Documentation
     fs::write(
@@ -68,7 +77,10 @@ pytest = "1.0"
         root.join("docs/architecture.md"),
         "# Architecture\n\nThis is a microservices architecture.",
     )?;
-    fs::write(root.join("docs/api.md"), "# API Documentation\n\nEndpoints...")?;
+    fs::write(
+        root.join("docs/api.md"),
+        "# API Documentation\n\nEndpoints...",
+    )?;
 
     // Create .git directory to make it look like a repo
     fs::create_dir_all(root.join(".git"))?;
@@ -95,9 +107,18 @@ serde = "1.0"
 "#,
     )?;
 
-    fs::write(root.join("README.md"), "# Simple Lib\n\nA simple Rust library.")?;
-    fs::write(root.join("src/lib.rs"), "pub fn add(a: i32, b: i32) -> i32 { a + b }")?;
-    fs::write(root.join("tests/integration_test.rs"), "#[test]\nfn test_add() {}")?;
+    fs::write(
+        root.join("README.md"),
+        "# Simple Lib\n\nA simple Rust library.",
+    )?;
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }",
+    )?;
+    fs::write(
+        root.join("tests/integration_test.rs"),
+        "#[test]\nfn test_add() {}",
+    )?;
     fs::write(
         root.join("examples/example.rs"),
         "fn main() { println!(\"Example\"); }",
@@ -141,7 +162,10 @@ fn test_polyglot_repository_analysis() -> Result<()> {
     let bootstrapper = BootstrapSelf::new(&persistence, session, repo_root);
     let outcome = bootstrapper.run()?;
 
-    assert!(outcome.nodes_created >= 3, "Should create repository + components + docs");
+    assert!(
+        outcome.nodes_created >= 3,
+        "Should create repository + components + docs"
+    );
     assert_eq!(outcome.repository_name, "universal-test");
     assert!(outcome.component_count > 0, "Should detect components");
     assert!(outcome.document_count > 0, "Should detect documents");
@@ -157,10 +181,7 @@ fn test_polyglot_repository_analysis() -> Result<()> {
     assert_eq!(repo_node.properties["name"], "universal-test");
 
     // Should detect multiple components
-    let components: Vec<_> = nodes
-        .iter()
-        .filter(|n| n.label == "Component")
-        .collect();
+    let components: Vec<_> = nodes.iter().filter(|n| n.label == "Component").collect();
     assert!(
         !components.is_empty(),
         "Should detect src, tests, docs, etc."
@@ -248,10 +269,7 @@ fn test_language_detection() -> Result<()> {
     if let Some(languages) = repo_node.properties.get("languages") {
         let langs_str = languages.to_string().to_lowercase();
         // Should detect at least Rust (from Cargo.toml/files)
-        assert!(
-            langs_str.contains("rust"),
-            "Should detect Rust language"
-        );
+        assert!(langs_str.contains("rust"), "Should detect Rust language");
     }
 
     Ok(())
@@ -275,10 +293,7 @@ fn test_component_classification() -> Result<()> {
     let nodes = persistence.list_graph_nodes(session, None, None)?;
 
     // Find component nodes
-    let component_nodes: Vec<_> = nodes
-        .iter()
-        .filter(|n| n.label == "Component")
-        .collect();
+    let component_nodes: Vec<_> = nodes.iter().filter(|n| n.label == "Component").collect();
 
     for node in &component_nodes {
         // Check that component nodes have some identifying properties
