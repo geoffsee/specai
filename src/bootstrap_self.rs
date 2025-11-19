@@ -7,7 +7,7 @@ use anyhow::{anyhow, Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use plugins::RustCargoPlugin;
+use plugins::{RustCargoPlugin, UniversalCodePlugin};
 use registry::PluginRegistry;
 
 #[derive(Debug)]
@@ -47,6 +47,8 @@ impl<'a> BootstrapSelf<'a> {
     fn init_plugins(&self) -> Result<()> {
         self.plugins
             .register(Arc::new(RustCargoPlugin))?;
+        self.plugins
+            .register(Arc::new(UniversalCodePlugin))?;
         Ok(())
     }
 
