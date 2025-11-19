@@ -45,7 +45,7 @@ Copy the example configuration:
 cp config.toml.example config.toml
 ```
 
-Or place it in `~/.agent_cli/config.toml` for user-wide settings.
+Or place it in `~/.spec-ai/config.toml` for user-wide settings.
 
 ### Configuration Precedence
 
@@ -53,7 +53,7 @@ Configuration is loaded in the following order (highest precedence first):
 
 1. **Environment Variables** - `AGENT_*` prefix (e.g., `AGENT_MODEL_PROVIDER=openai`)
 2. **Current Directory** - `./config.toml`
-3. **Home Directory** - `~/.agent_cli/config.toml`
+3. **Home Directory** - `~/.spec-ai/config.toml`
 4. **Defaults** - Sensible defaults for all settings
 
 ### Available Environment Variables

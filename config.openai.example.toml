@@ -1,17 +1,16 @@
-# spec-ai Configuration
+# spec-ai Configuration (openai)
 # Multi-model reasoning and knowledge graph are enabled by default
 
 # Default agent with advanced features
 default_agent = "default"
 
 [database]
-path = "~/.spec-ai/demo-agent_data.db"
+path = "~/.spec-ai/demo-openai_agent_data.db"
 
 [model]
 provider = "openai"
 model_name = "gpt-4.1"
 embeddings_model = "text-embedding-3-small"
-
 # API key source (optional)
 # Examples: "env:OPENAI_API_KEY", "file:~/.secrets/api_key"
 # api_key_source = "env:OPENAI_API_KEY"

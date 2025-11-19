@@ -1,4 +1,4 @@
-# Spec-AI Configuration
+# spec-ai Configuration
 # Multi-model reasoning and knowledge graph are enabled by default
 
 # Default agent with advanced features
@@ -7,7 +7,7 @@ default_agent = "default"
 # Database configuration
 [database]
 # Path to the DuckDB database file
-path = "~/.agent_cli/agent_data.duckdb"
+path = "~/.spec-ai/agent_data.duckdb"
 
 # Model configuration (Main model for complex reasoning)
 [model]
@@ -21,7 +21,7 @@ provider = "openai"
 # model_name = "gpt-4"
 
 # Embeddings model for semantic search
-embeddings_model = "text-embedding-ada-002"
+embeddings_model = "text-embedding-3-small"
 
 # API key source (optional)
 # Examples: "env:OPENAI_API_KEY", "file:~/.secrets/api_key"

@@ -32,7 +32,7 @@ impl Persistence {
         })
     }
 
-    /// Creates or opens the default database at ~/.agent_cli/agent_data.duckdb
+    /// Creates or opens the default database at ~/.spec-ai/agent_data.duckdb
     pub fn new_default() -> Result<Self> {
         let base = BaseDirs::new().context("base directories not available")?;
         let path = base.home_dir().join(".agent_cli").join("agent_data.duckdb");

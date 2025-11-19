@@ -1,18 +1,18 @@
-# Spec-AI Configuration with Knowledge Graph Features
-# This example shows how to enable graph-based reasoning for intelligent context management
+# spec-ai Configuration exercising in-depth knowledge graph features
+# This example shows how to tune graph-based reasoning for intelligent context management
 
 # Default agent to use when starting the CLI
 default_agent = "graph_agent"
 
 # Database configuration
 [database]
-path = "~/.agent_cli/agent_data.duckdb"
+path = "~/.spec-ai/demo-graph.db"
 
 # Model provider configuration
 [model]
 provider = "openai"  # Options: "openai", "anthropic", "ollama", "mlx", "lmstudio", "mock"
-# model_name = "gpt-4"  # Optional override
-embeddings_model = "text-embedding-ada-002"  # For semantic search
+model_name = "gpt-4.1"  # Optional override
+embeddings_model = "text-embedding-3-small"  # For semantic search
 
 # User interface configuration
 [ui]
