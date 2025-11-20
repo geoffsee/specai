@@ -5640,9 +5640,9 @@ dependencies = [
 
 [[package]]
 name = "termimad"
-version = "0.30.1"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22117210909e9dfff30a558f554c7fb3edb198ef614e7691386785fb7679677c"
+checksum = "68ff5ca043d65d4ea43b65cdb4e3aba119657d0d12caf44f93212ec3168a8e20"
 dependencies = [
  "coolor",
  "crokey",
@@ -5650,7 +5650,7 @@ dependencies = [
  "lazy-regex",
  "minimad",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "unicode-width 0.1.14",
 ]
 
