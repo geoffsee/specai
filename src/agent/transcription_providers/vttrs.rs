@@ -72,7 +72,9 @@ impl VttRsProvider {
         VttConfig {
             chunk_duration_secs: config.chunk_duration_secs as usize,
             model: config.model.clone(),
-            endpoint: config.endpoint.clone()
+            endpoint: config
+                .endpoint
+                .clone()
                 .or(self.endpoint.clone())
                 .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
             out_file: config.out_file.clone().map(PathBuf::from),
@@ -149,24 +151,22 @@ impl TranscriptionProvider for VttRsProvider {
 
                 // Receive next event from vtt-rs
                 match receiver.recv().await {
-                    Some(vtt_event) => {
-                        match vtt_event {
-                            vtt_rs::TranscriptionEvent::Transcription { chunk_id, text } => {
-                                chunk_count += 1;
-                                let _ = tx.send(TranscriptionEvent::Transcription {
-                                    chunk_id,
-                                    text,
-                                    timestamp: std::time::SystemTime::now(),
-                                });
-                            }
-                            vtt_rs::TranscriptionEvent::Error { chunk_id, error } => {
-                                let _ = tx.send(TranscriptionEvent::Error {
-                                    chunk_id,
-                                    message: error,
-                                });
-                            }
+                    Some(vtt_event) => match vtt_event {
+                        vtt_rs::TranscriptionEvent::Transcription { chunk_id, text } => {
+                            chunk_count += 1;
+                            let _ = tx.send(TranscriptionEvent::Transcription {
+                                chunk_id,
+                                text,
+                                timestamp: std::time::SystemTime::now(),
+                            });
                         }
-                    }
+                        vtt_rs::TranscriptionEvent::Error { chunk_id, error } => {
+                            let _ = tx.send(TranscriptionEvent::Error {
+                                chunk_id,
+                                message: error,
+                            });
+                        }
+                    },
                     None => {
                         // Channel closed, transcription stopped
                         break;
@@ -253,8 +253,8 @@ mod tests {
 
     #[test]
     fn test_provider_with_endpoint() {
-        let provider = VttRsProvider::new("test-api-key")
-            .with_endpoint("https://custom-endpoint.com");
+        let provider =
+            VttRsProvider::new("test-api-key").with_endpoint("https://custom-endpoint.com");
         assert_eq!(
             provider.endpoint,
             Some("https://custom-endpoint.com".to_string())
@@ -288,8 +288,8 @@ mod tests {
 
     #[test]
     fn test_build_vtt_config() {
-        let provider = VttRsProvider::new("test-api-key")
-            .with_endpoint("https://custom-endpoint.com");
+        let provider =
+            VttRsProvider::new("test-api-key").with_endpoint("https://custom-endpoint.com");
 
         let config = TranscriptionConfig {
             chunk_duration_secs: 3.0,

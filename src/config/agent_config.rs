@@ -17,8 +17,7 @@ const DEFAULT_CONFIG: &str = include_str!("../../spec-ai.config.toml");
 const CONFIG_FILE_NAME: &str = "spec-ai.config.toml";
 
 /// Top-level application configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     /// Database configuration
     #[serde(default)]
@@ -53,11 +52,14 @@ impl AppConfig {
         }
 
         // Try to load from ~/.spec-ai/spec-ai.config.toml
-        if let Ok(base_dirs) = BaseDirs::new().ok_or(anyhow::anyhow!("Could not determine home directory")) {
+        if let Ok(base_dirs) =
+            BaseDirs::new().ok_or(anyhow::anyhow!("Could not determine home directory"))
+        {
             let home_config = base_dirs.home_dir().join(".spec-ai").join(CONFIG_FILE_NAME);
             if let Ok(content) = std::fs::read_to_string(&home_config) {
-                return toml::from_str(&content)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", home_config.display(), e));
+                return toml::from_str(&content).map_err(|e| {
+                    anyhow::anyhow!("Failed to parse {}: {}", home_config.display(), e)
+                });
             }
         }
 
@@ -70,12 +72,18 @@ impl AppConfig {
         }
 
         // No config file found - create one from embedded default
-        eprintln!("No configuration file found. Creating {} with default settings...", CONFIG_FILE_NAME);
+        eprintln!(
+            "No configuration file found. Creating {} with default settings...",
+            CONFIG_FILE_NAME
+        );
         if let Err(e) = std::fs::write(CONFIG_FILE_NAME, DEFAULT_CONFIG) {
             eprintln!("Warning: Could not create {}: {}", CONFIG_FILE_NAME, e);
             eprintln!("Continuing with default configuration in memory.");
         } else {
-            eprintln!("Created {}. You can edit this file to customize your settings.", CONFIG_FILE_NAME);
+            eprintln!(
+                "Created {}. You can edit this file to customize your settings.",
+                CONFIG_FILE_NAME
+            );
         }
 
         // Parse and return the embedded default config
@@ -88,13 +96,15 @@ impl AppConfig {
     pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
         // Try to read existing file
         match std::fs::read_to_string(path) {
-            Ok(content) => {
-                toml::from_str(&content)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse config file {}: {}", path.display(), e))
-            }
+            Ok(content) => toml::from_str(&content).map_err(|e| {
+                anyhow::anyhow!("Failed to parse config file {}: {}", path.display(), e)
+            }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 // File doesn't exist - create it with default config
-                eprintln!("Configuration file not found at {}. Creating with default settings...", path.display());
+                eprintln!(
+                    "Configuration file not found at {}. Creating with default settings...",
+                    path.display()
+                );
 
                 // Create parent directories if needed
                 if let Some(parent) = path.parent() {
@@ -103,18 +113,25 @@ impl AppConfig {
                 }
 
                 // Write default config
-                std::fs::write(path, DEFAULT_CONFIG)
-                    .context(format!("Failed to create config file at {}", path.display()))?;
+                std::fs::write(path, DEFAULT_CONFIG).context(format!(
+                    "Failed to create config file at {}",
+                    path.display()
+                ))?;
 
-                eprintln!("Created {}. You can edit this file to customize your settings.", path.display());
+                eprintln!(
+                    "Created {}. You can edit this file to customize your settings.",
+                    path.display()
+                );
 
                 // Parse and return the embedded default config
                 toml::from_str(DEFAULT_CONFIG)
                     .map_err(|e| anyhow::anyhow!("Failed to parse embedded default config: {}", e))
             }
-            Err(e) => {
-                Err(anyhow::anyhow!("Failed to read config file {}: {}", path.display(), e))
-            }
+            Err(e) => Err(anyhow::anyhow!(
+                "Failed to read config file {}: {}",
+                path.display(),
+                e
+            )),
         }
     }
 
@@ -217,7 +234,6 @@ impl AppConfig {
         summary
     }
 }
-
 
 /// Database configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

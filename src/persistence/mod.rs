@@ -784,7 +784,11 @@ impl Persistence {
         Ok(())
     }
 
-    pub fn list_transcriptions(&self, session_id: &str, limit: Option<i64>) -> Result<Vec<(i64, i64, String, DateTime<Utc>)>> {
+    pub fn list_transcriptions(
+        &self,
+        session_id: &str,
+        limit: Option<i64>,
+    ) -> Result<Vec<(i64, i64, String, DateTime<Utc>)>> {
         let conn = self.conn();
         let query = if let Some(lim) = limit {
             format!(
@@ -813,20 +817,26 @@ impl Persistence {
 
     pub fn get_full_transcription(&self, session_id: &str) -> Result<String> {
         let transcriptions = self.list_transcriptions(session_id, None)?;
-        Ok(transcriptions.into_iter().map(|(_, _, text, _)| text).collect::<Vec<_>>().join(" "))
+        Ok(transcriptions
+            .into_iter()
+            .map(|(_, _, text, _)| text)
+            .collect::<Vec<_>>()
+            .join(" "))
     }
 
     pub fn delete_transcriptions(&self, session_id: &str) -> Result<()> {
         let conn = self.conn();
-        conn.execute("DELETE FROM transcriptions WHERE session_id = ?", params![session_id])?;
+        conn.execute(
+            "DELETE FROM transcriptions WHERE session_id = ?",
+            params![session_id],
+        )?;
         Ok(())
     }
 
     pub fn get_transcription_by_embedding(&self, embedding_id: i64) -> Result<Option<String>> {
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT text FROM transcriptions WHERE embedding_id = ? LIMIT 1"
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT text FROM transcriptions WHERE embedding_id = ? LIMIT 1")?;
         let result: Result<String, _> = stmt.query_row(params![embedding_id], |row| row.get(0));
         match result {
             Ok(text) => Ok(Some(text)),

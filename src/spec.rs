@@ -188,7 +188,7 @@ impl AgentSpec {
             if lines.is_empty() {
                 return ctx;
             }
-            
+
             lines
                 .into_iter()
                 .take(max_lines)

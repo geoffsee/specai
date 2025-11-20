@@ -787,7 +787,9 @@ impl AgentCore {
                                 }
                             } else {
                                 // Check if this is a transcription embedding
-                                if let Some(transcription_text) = self.persistence.get_transcription_by_embedding(memory.id)? {
+                                if let Some(transcription_text) =
+                                    self.persistence.get_transcription_by_embedding(memory.id)?
+                                {
                                     // Create a synthetic message for the transcription
                                     let transcription_message = Message {
                                         id: memory.id, // Use embedding ID as synthetic message ID
@@ -1470,9 +1472,10 @@ impl AgentCore {
 
         for (task, keywords) in candidates {
             if keywords.iter().any(|kw| text.contains(kw))
-                && self.profile.fast_model_tasks.iter().any(|t| t == task) {
-                    return Some(task.to_string());
-                }
+                && self.profile.fast_model_tasks.iter().any(|t| t == task)
+            {
+                return Some(task.to_string());
+            }
         }
 
         None

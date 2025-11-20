@@ -76,12 +76,13 @@ async fn execute_shell_command(args: &ShellArgs) -> Result<ShellOutput> {
 
     let shell_path = PathBuf::from(&shell_binary);
     if (shell_path.is_absolute() || shell_binary.contains(std::path::MAIN_SEPARATOR))
-        && !shell_path.exists() {
-            return Err(anyhow!(
-                "Shell binary {} does not exist",
-                shell_path.display()
-            ));
-        }
+        && !shell_path.exists()
+    {
+        return Err(anyhow!(
+            "Shell binary {} does not exist",
+            shell_path.display()
+        ));
+    }
 
     let timeout = args
         .timeout_ms

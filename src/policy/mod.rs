@@ -34,12 +34,10 @@ impl PolicyRule {
 }
 
 /// Container for all policy rules
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PolicySet {
     pub rules: Vec<PolicyRule>,
 }
-
 
 /// Result of policy evaluation
 #[derive(Debug, Clone, PartialEq, Eq)]

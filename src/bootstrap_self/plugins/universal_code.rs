@@ -228,8 +228,7 @@ impl UniversalCodePlugin {
         }
 
         classification.total_files = file_count;
-        classification.detected_languages =
-            language_counts.into_keys().collect();
+        classification.detected_languages = language_counts.into_keys().collect();
 
         // Collect components (top-level directories)
         self.identify_components(repo_root, &mut classification)?;

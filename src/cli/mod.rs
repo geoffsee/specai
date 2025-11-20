@@ -10,8 +10,10 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::agent::core::MemoryRecallStrategy;
+use crate::agent::{
+    create_transcription_provider, create_transcription_provider_simple, TranscriptionProvider,
+};
 use crate::agent::{AgentBuilder, AgentCore, AgentOutput};
-use crate::agent::{create_transcription_provider, create_transcription_provider_simple, TranscriptionProvider};
 use crate::bootstrap_self::BootstrapSelf;
 use crate::config::{AgentProfile, AgentRegistry, AppConfig};
 use crate::persistence::Persistence;
@@ -291,22 +293,23 @@ impl CliState {
             let timestamp = chrono::Utc::now();
 
             // Insert transcription
-            match self.persistence.insert_transcription(
-                session_id,
-                idx as i64,
-                text,
-                timestamp,
-            ) {
+            match self
+                .persistence
+                .insert_transcription(session_id, idx as i64, text, timestamp)
+            {
                 Ok(transcription_id) => {
                     chunk_count += 1;
 
                     // Generate and link embedding
                     if let Some(embedding_id) = self.agent.generate_embedding(text).await {
-                        if let Err(e) = self.persistence.update_transcription_embedding(
-                            transcription_id,
-                            embedding_id,
-                        ) {
-                            eprintln!("[Transcription] Failed to link embedding for chunk {}: {}", idx, e);
+                        if let Err(e) = self
+                            .persistence
+                            .update_transcription_embedding(transcription_id, embedding_id)
+                        {
+                            eprintln!(
+                                "[Transcription] Failed to link embedding for chunk {}: {}",
+                                idx, e
+                            );
                         }
                     }
                 }
@@ -536,14 +539,22 @@ impl CliState {
 
                 // Check if already running
                 if self.transcription_task.is_some() {
-                    return Ok(Some("Transcription is already running. Use /listen stop to stop it first.".to_string()));
+                    return Ok(Some(
+                        "Transcription is already running. Use /listen stop to stop it first."
+                            .to_string(),
+                    ));
                 }
 
                 // Build transcription config from app config
                 let config = TranscriptionConfig {
                     duration_secs: duration.or(Some(self.config.audio.default_duration_secs)),
                     chunk_duration_secs: self.config.audio.chunk_duration_secs,
-                    model: self.config.audio.model.clone().unwrap_or_else(|| "whisper-1".to_string()),
+                    model: self
+                        .config
+                        .audio
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| "whisper-1".to_string()),
                     out_file: self.config.audio.out_file.clone(),
                     language: self.config.audio.language.clone(),
                     endpoint: self.config.audio.endpoint.clone(),
@@ -641,9 +652,7 @@ impl CliState {
                     // Save to database
                     let chunk_count = self.save_transcription_chunks(&chunks).await;
 
-                    let elapsed = task.started_at.elapsed()
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
+                    let elapsed = task.started_at.elapsed().map(|d| d.as_secs()).unwrap_or(0);
 
                     Ok(Some(format!(
                         "Stopped transcription (ran for {} seconds, saved {} chunks to database)",
@@ -667,9 +676,7 @@ impl CliState {
                         // Save to database
                         let chunk_count = self.save_transcription_chunks(&chunks).await;
 
-                        let elapsed = task.started_at.elapsed()
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
+                        let elapsed = task.started_at.elapsed().map(|d| d.as_secs()).unwrap_or(0);
 
                         return Ok(Some(format!(
                             "Transcription completed (ran for {} seconds, saved {} chunks to database)",
@@ -682,9 +689,7 @@ impl CliState {
                 }
 
                 if let Some(ref task) = self.transcription_task {
-                    let elapsed = task.started_at.elapsed()
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
+                    let elapsed = task.started_at.elapsed().map(|d| d.as_secs()).unwrap_or(0);
 
                     let duration_info = if let Some(dur) = task.duration_secs {
                         format!("/{} seconds", dur)

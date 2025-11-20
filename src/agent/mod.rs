@@ -18,4 +18,6 @@ pub use transcription::{
     TranscriptionConfig, TranscriptionEvent, TranscriptionProvider, TranscriptionProviderKind,
     TranscriptionProviderMetadata, TranscriptionStats,
 };
-pub use transcription_factory::{create_transcription_provider, create_transcription_provider_simple};
+pub use transcription_factory::{
+    create_transcription_provider, create_transcription_provider_simple,
+};
