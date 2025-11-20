@@ -19,7 +19,6 @@ enum FileReadFormat {
     Base64,
 }
 
-
 #[derive(Debug, Deserialize)]
 struct FileReadArgs {
     path: String,

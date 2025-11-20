@@ -20,7 +20,6 @@ enum WriteMode {
     Append,
 }
 
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
@@ -29,7 +28,6 @@ enum ContentEncoding {
     Text,
     Base64,
 }
-
 
 #[derive(Debug, Deserialize)]
 struct FileWriteArgs {

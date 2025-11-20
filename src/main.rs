@@ -1,11 +1,54 @@
 use anyhow::Result;
 use spec_ai::cli::CliState;
 use std::env;
+use std::path::PathBuf;
+
+fn print_usage() {
+    eprintln!("Usage: spec-ai [OPTIONS]");
+    eprintln!();
+    eprintln!("Options:");
+    eprintln!("  -c, --config <PATH>    Path to config file (default: ./spec-ai.config.toml or ~/.spec-ai/spec-ai.config.toml)");
+    eprintln!("  -h, --help             Print this help message");
+}
+
+fn parse_args() -> Result<Option<PathBuf>> {
+    let args: Vec<String> = env::args().collect();
+
+    for i in 1..args.len() {
+        let arg = &args[i];
+        match arg.as_str() {
+            "-c" | "--config" => {
+                if i + 1 >= args.len() {
+                    anyhow::bail!("--config requires a path argument");
+                }
+                return Ok(Some(PathBuf::from(&args[i + 1])));
+            }
+            "-h" | "--help" => {
+                print_usage();
+                std::process::exit(0);
+            }
+            _ if arg.starts_with('-') => {
+                eprintln!("Unknown argument: {}", arg);
+                print_usage();
+                std::process::exit(1);
+            }
+            _ => {
+                // Skip non-flag arguments (like the value after --config)
+                continue;
+            }
+        }
+    }
+
+    Ok(None)
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Parse command-line arguments
+    let config_path = parse_args()?;
+
     // Initialize CLI state (loads config and persistence)
-    let mut cli = match CliState::initialize() {
+    let mut cli = match CliState::initialize_with_path(config_path) {
         Ok(cli) => cli,
         Err(e) => {
             // Check if this is a database lock error (another instance running)

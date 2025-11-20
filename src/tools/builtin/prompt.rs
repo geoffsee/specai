@@ -700,7 +700,6 @@ impl PromptInputType {
     }
 }
 
-
 #[derive(Debug, Clone, Deserialize)]
 struct PromptOption {
     #[serde(default)]

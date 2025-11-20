@@ -34,6 +34,12 @@ pub fn run(conn: &Connection) -> Result<()> {
         migrations_applied = true;
     }
 
+    if current < 4 {
+        apply_v4(conn)?;
+        set_version(conn, 4)?;
+        migrations_applied = true;
+    }
+
     // Force checkpoint after migrations to ensure WAL is merged into the database file.
     // This prevents ALTER TABLE operations from being stuck in the WAL, which can cause
     // "no default database set" errors during WAL replay on subsequent startups.
@@ -191,4 +197,32 @@ fn apply_v3(conn: &Connection) -> Result<()> {
         "#,
     )
     .context("applying v3 schema (knowledge graph tables)")
+}
+
+fn apply_v4(conn: &Connection) -> Result<()> {
+    // Transcriptions table for audio transcription storage
+    conn.execute_batch(
+        r#"
+        -- Sequence for transcriptions table
+        CREATE SEQUENCE IF NOT EXISTS transcriptions_id_seq START 1;
+
+        -- Transcriptions table
+        CREATE TABLE IF NOT EXISTS transcriptions (
+            id BIGINT PRIMARY KEY DEFAULT nextval('transcriptions_id_seq'),
+            session_id TEXT NOT NULL,
+            chunk_id INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            embedding_id BIGINT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (embedding_id) REFERENCES memory_vectors(id)
+        );
+
+        -- Create indexes for performance
+        CREATE INDEX IF NOT EXISTS idx_transcriptions_session ON transcriptions(session_id);
+        CREATE INDEX IF NOT EXISTS idx_transcriptions_session_chunk ON transcriptions(session_id, chunk_id);
+        CREATE INDEX IF NOT EXISTS idx_transcriptions_embedding ON transcriptions(embedding_id);
+        "#,
+    )
+    .context("applying v4 schema (transcriptions table)")
 }

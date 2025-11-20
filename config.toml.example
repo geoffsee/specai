@@ -206,3 +206,22 @@ enable_graph = true  # Can still use graph
 # - AGENT_DEFAULT_AGENT: Default agent
 # - LMSTUDIO_ENDPOINT: LM Studio server endpoint
 # - MLX_ENDPOINT: MLX server endpoint
+
+# Cloud transcription with OpenAI:
+# [audio]
+# provider = "vttrs"
+# model = "whisper-1"
+# on_device = false
+# api_key_source = "env:OPENAI_API_KEY"
+#
+# Offline transcription (no API key needed):
+# [audio]
+# provider = "vttrs"
+# model = "whisper-large-v3"
+# on_device = true  # Runs locally!
+#
+# Custom endpoint (e.g., local server):
+# [audio]
+# provider = "vttrs"
+# endpoint = "http://localhost:8000/v1"
+# api_key_source = "file:~/.secrets/api_key"

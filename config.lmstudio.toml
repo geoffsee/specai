@@ -46,6 +46,13 @@ denied_tools = [
     "web_search"
 ]
 
+# Offline transcription
+[audio]
+provider = "vttrs"
+model = "whisper-large-v3"
+on_device = true
+
+
 # ========== HIERARCHICAL MULTI-MODEL REASONING ==========
 # Enable fast reasoning with Llama-3.2-3B
 fast_reasoning = true

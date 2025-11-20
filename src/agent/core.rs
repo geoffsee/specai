@@ -785,6 +785,28 @@ impl AgentCore {
                                     });
                                     semantic_context.push(message);
                                 }
+                            } else {
+                                // Check if this is a transcription embedding
+                                if let Some(transcription_text) =
+                                    self.persistence.get_transcription_by_embedding(memory.id)?
+                                {
+                                    // Create a synthetic message for the transcription
+                                    let transcription_message = Message {
+                                        id: memory.id, // Use embedding ID as synthetic message ID
+                                        session_id: memory.session_id.clone(),
+                                        role: MessageRole::User, // Transcriptions are user input
+                                        content: format!("[Transcription] {}", transcription_text),
+                                        created_at: memory.created_at,
+                                    };
+
+                                    matches.push(MemoryRecallMatch {
+                                        message_id: None, // No actual message ID
+                                        score,
+                                        role: MessageRole::User,
+                                        preview: preview_text(&transcription_text),
+                                    });
+                                    semantic_context.push(transcription_message);
+                                }
                             }
                         }
 
@@ -1450,9 +1472,10 @@ impl AgentCore {
 
         for (task, keywords) in candidates {
             if keywords.iter().any(|kw| text.contains(kw))
-                && self.profile.fast_model_tasks.iter().any(|t| t == task) {
-                    return Some(task.to_string());
-                }
+                && self.profile.fast_model_tasks.iter().any(|t| t == task)
+            {
+                return Some(task.to_string());
+            }
         }
 
         None
@@ -2048,6 +2071,37 @@ impl AgentCore {
     /// Set a new policy engine (useful for reloading policies)
     pub fn set_policy_engine(&mut self, policy_engine: Arc<PolicyEngine>) {
         self.policy_engine = policy_engine;
+    }
+
+    /// Generate and store an embedding for arbitrary text (e.g., transcriptions)
+    /// Returns the embedding_id if successful, None otherwise
+    pub async fn generate_embedding(&self, text: &str) -> Option<i64> {
+        if let Some(client) = &self.embeddings_client {
+            if !text.trim().is_empty() {
+                match client.embed_batch(&[text]).await {
+                    Ok(mut embeddings) => {
+                        if let Some(embedding) = embeddings.pop() {
+                            if !embedding.is_empty() {
+                                match self.persistence.insert_memory_vector(
+                                    &self.session_id,
+                                    None, // No message_id for transcriptions
+                                    &embedding,
+                                ) {
+                                    Ok(emb_id) => return Some(emb_id),
+                                    Err(err) => {
+                                        warn!("Failed to persist embedding: {}", err);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        warn!("Failed to generate embedding: {}", err);
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Evaluate the knowledge graph to recommend a next action based on context

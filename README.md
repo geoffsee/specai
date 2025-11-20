@@ -41,16 +41,29 @@ cargo build --release
 
 On first run, spec-ai will automatically create a `spec-ai.config.toml` file with default settings in your current directory. You can edit this file to customize your configuration.
 
-Alternatively, place your configuration in `~/.spec-ai/spec-ai.config.toml` for user-wide settings.
+Alternatively, place your configuration in `~/.spec-ai/spec-ai.config.toml` for user-wide settings, or use the `--config` flag to specify a custom location.
+
+**Using Custom Config Files:**
+
+```bash
+# Specify a custom config file (created with defaults if it doesn't exist)
+spec-ai --config /path/to/my-config.toml
+
+# Use different configs for different projects
+spec-ai -c ./project-a.toml
+spec-ai -c ./project-b.toml
+```
 
 ### Configuration Precedence
 
 Configuration is loaded in the following order (highest precedence first):
 
-1. **Environment Variables** - `AGENT_*` prefix (e.g., `AGENT_MODEL_PROVIDER=openai`)
-2. **Current Directory** - `./spec-ai.config.toml`
-3. **Home Directory** - `~/.spec-ai/spec-ai.config.toml`
-4. **Embedded Default** - A default configuration is embedded in the binary and created if no config file exists
+1. **Command-Line Flag** - `--config <PATH>` (if specified)
+2. **Environment Variables** - `AGENT_*` prefix (e.g., `AGENT_MODEL_PROVIDER=openai`)
+3. **Current Directory** - `./spec-ai.config.toml`
+4. **Home Directory** - `~/.spec-ai/spec-ai.config.toml`
+5. **Environment Variable** - `CONFIG_PATH` environment variable
+6. **Embedded Default** - A default configuration is embedded in the binary and created if no config file exists
 
 ### Available Environment Variables
 
@@ -66,8 +79,22 @@ Configuration is loaded in the following order (highest precedence first):
 ### Running
 
 ```bash
+# Run with default configuration
 cargo run
+
+# Run with custom config file
+cargo run -- --config /path/to/config.toml
+
+# Short form
+cargo run -- -c custom.toml
+
+# Show help
+cargo run -- --help
 ```
+
+**Command-Line Options:**
+- `-c, --config <PATH>` - Specify a custom configuration file path
+- `-h, --help` - Display usage information
 
 Expected output:
 ```

@@ -4,7 +4,7 @@
 //! database configuration, UI preferences, and logging.
 
 use crate::config::agent::AgentProfile;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -17,8 +17,7 @@ const DEFAULT_CONFIG: &str = include_str!("../../spec-ai.config.toml");
 const CONFIG_FILE_NAME: &str = "spec-ai.config.toml";
 
 /// Top-level application configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     /// Database configuration
     #[serde(default)]
@@ -53,11 +52,14 @@ impl AppConfig {
         }
 
         // Try to load from ~/.spec-ai/spec-ai.config.toml
-        if let Ok(base_dirs) = BaseDirs::new().ok_or(anyhow::anyhow!("Could not determine home directory")) {
+        if let Ok(base_dirs) =
+            BaseDirs::new().ok_or(anyhow::anyhow!("Could not determine home directory"))
+        {
             let home_config = base_dirs.home_dir().join(".spec-ai").join(CONFIG_FILE_NAME);
             if let Ok(content) = std::fs::read_to_string(&home_config) {
-                return toml::from_str(&content)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", home_config.display(), e));
+                return toml::from_str(&content).map_err(|e| {
+                    anyhow::anyhow!("Failed to parse {}: {}", home_config.display(), e)
+                });
             }
         }
 
@@ -70,12 +72,18 @@ impl AppConfig {
         }
 
         // No config file found - create one from embedded default
-        eprintln!("No configuration file found. Creating {} with default settings...", CONFIG_FILE_NAME);
+        eprintln!(
+            "No configuration file found. Creating {} with default settings...",
+            CONFIG_FILE_NAME
+        );
         if let Err(e) = std::fs::write(CONFIG_FILE_NAME, DEFAULT_CONFIG) {
             eprintln!("Warning: Could not create {}: {}", CONFIG_FILE_NAME, e);
             eprintln!("Continuing with default configuration in memory.");
         } else {
-            eprintln!("Created {}. You can edit this file to customize your settings.", CONFIG_FILE_NAME);
+            eprintln!(
+                "Created {}. You can edit this file to customize your settings.",
+                CONFIG_FILE_NAME
+            );
         }
 
         // Parse and return the embedded default config
@@ -84,9 +92,47 @@ impl AppConfig {
     }
 
     /// Load configuration from a specific file path
+    /// If the file doesn't exist, creates it with default settings
     pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        toml::from_str(&content).map_err(|e| anyhow::anyhow!("Failed to parse config file: {}", e))
+        // Try to read existing file
+        match std::fs::read_to_string(path) {
+            Ok(content) => toml::from_str(&content).map_err(|e| {
+                anyhow::anyhow!("Failed to parse config file {}: {}", path.display(), e)
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // File doesn't exist - create it with default config
+                eprintln!(
+                    "Configuration file not found at {}. Creating with default settings...",
+                    path.display()
+                );
+
+                // Create parent directories if needed
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .context(format!("Failed to create directory {}", parent.display()))?;
+                }
+
+                // Write default config
+                std::fs::write(path, DEFAULT_CONFIG).context(format!(
+                    "Failed to create config file at {}",
+                    path.display()
+                ))?;
+
+                eprintln!(
+                    "Created {}. You can edit this file to customize your settings.",
+                    path.display()
+                );
+
+                // Parse and return the embedded default config
+                toml::from_str(DEFAULT_CONFIG)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse embedded default config: {}", e))
+            }
+            Err(e) => Err(anyhow::anyhow!(
+                "Failed to read config file {}: {}",
+                path.display(),
+                e
+            )),
+        }
     }
 
     /// Validate the configuration
@@ -189,7 +235,6 @@ impl AppConfig {
     }
 }
 
-
 /// Database configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
@@ -276,29 +321,44 @@ impl Default for LoggingConfig {
 /// Audio transcription configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioConfig {
-    /// Whether audio transcription is enabled
+    /// Transcription provider (mock, vttrs)
+    #[serde(default = "default_transcription_provider")]
+    pub provider: String,
+    /// Transcription model (e.g., "whisper-1", "whisper-large-v3")
     #[serde(default)]
-    pub enabled: bool,
-    /// Default mock scenario for testing
-    #[serde(default = "default_scenario")]
-    pub mock_scenario: String,
-    /// Event dispatch delay in milliseconds
-    #[serde(default = "default_event_delay")]
-    pub event_delay_ms: u64,
+    pub model: Option<String>,
+    /// API key source for cloud transcription
+    #[serde(default)]
+    pub api_key_source: Option<String>,
+    /// Use on-device transcription (offline mode)
+    #[serde(default)]
+    pub on_device: bool,
+    /// Custom API endpoint (optional)
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    /// Audio chunk duration in seconds
+    #[serde(default = "default_chunk_duration")]
+    pub chunk_duration_secs: f64,
+    /// Default transcription duration in seconds
+    #[serde(default = "default_duration")]
+    pub default_duration_secs: u64,
+    /// Output file path for transcripts (optional)
+    #[serde(default)]
+    pub out_file: Option<String>,
+    /// Language code (e.g., "en", "es", "fr")
+    #[serde(default)]
+    pub language: Option<String>,
     /// Whether to automatically respond to transcriptions
     #[serde(default)]
     pub auto_respond: bool,
-    /// Default transcription duration in seconds
-    #[serde(default = "default_duration")]
-    pub default_duration: u64,
 }
 
-fn default_scenario() -> String {
-    "simple_conversation".to_string()
+fn default_transcription_provider() -> String {
+    "vttrs".to_string()
 }
 
-fn default_event_delay() -> u64 {
-    500
+fn default_chunk_duration() -> f64 {
+    5.0
 }
 
 fn default_duration() -> u64 {
@@ -308,11 +368,16 @@ fn default_duration() -> u64 {
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            mock_scenario: default_scenario(),
-            event_delay_ms: default_event_delay(),
+            provider: default_transcription_provider(),
+            model: Some("whisper-1".to_string()),
+            api_key_source: None,
+            on_device: false,
+            endpoint: None,
+            chunk_duration_secs: default_chunk_duration(),
+            default_duration_secs: default_duration(),
+            out_file: None,
+            language: None,
             auto_respond: false,
-            default_duration: default_duration(),
         }
     }
 }
