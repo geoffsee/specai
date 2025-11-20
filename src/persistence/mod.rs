@@ -750,4 +750,88 @@ impl Persistence {
             edges: path_edges,
         })
     }
+
+    // ---------- Transcriptions ----------
+
+    pub fn insert_transcription(
+        &self,
+        session_id: &str,
+        chunk_id: i64,
+        text: &str,
+        timestamp: chrono::DateTime<Utc>,
+    ) -> Result<i64> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "INSERT INTO transcriptions (session_id, chunk_id, text, timestamp, embedding_id) VALUES (?, ?, ?, ?, NULL) RETURNING id",
+        )?;
+        let id: i64 = stmt.query_row(
+            params![session_id, chunk_id, text, timestamp.to_rfc3339()],
+            |row| row.get(0),
+        )?;
+        Ok(id)
+    }
+
+    pub fn update_transcription_embedding(
+        &self,
+        transcription_id: i64,
+        embedding_id: i64,
+    ) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE transcriptions SET embedding_id = ? WHERE id = ?",
+            params![embedding_id, transcription_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_transcriptions(&self, session_id: &str, limit: Option<i64>) -> Result<Vec<(i64, i64, String, DateTime<Utc>)>> {
+        let conn = self.conn();
+        let query = if let Some(lim) = limit {
+            format!(
+                "SELECT id, chunk_id, text, CAST(timestamp AS TEXT) FROM transcriptions WHERE session_id = ? ORDER BY chunk_id ASC LIMIT {}",
+                lim
+            )
+        } else {
+            "SELECT id, chunk_id, text, CAST(timestamp AS TEXT) FROM transcriptions WHERE session_id = ? ORDER BY chunk_id ASC".to_string()
+        };
+
+        let mut stmt = conn.prepare(&query)?;
+        let mut rows = stmt.query(params![session_id])?;
+        let mut out = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let chunk_id: i64 = row.get(1)?;
+            let text: String = row.get(2)?;
+            let timestamp_str: String = row.get(3)?;
+            let timestamp: DateTime<Utc> = timestamp_str.parse().unwrap_or_else(|_| Utc::now());
+            out.push((id, chunk_id, text, timestamp));
+        }
+
+        Ok(out)
+    }
+
+    pub fn get_full_transcription(&self, session_id: &str) -> Result<String> {
+        let transcriptions = self.list_transcriptions(session_id, None)?;
+        Ok(transcriptions.into_iter().map(|(_, _, text, _)| text).collect::<Vec<_>>().join(" "))
+    }
+
+    pub fn delete_transcriptions(&self, session_id: &str) -> Result<()> {
+        let conn = self.conn();
+        conn.execute("DELETE FROM transcriptions WHERE session_id = ?", params![session_id])?;
+        Ok(())
+    }
+
+    pub fn get_transcription_by_embedding(&self, embedding_id: i64) -> Result<Option<String>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT text FROM transcriptions WHERE embedding_id = ? LIMIT 1"
+        )?;
+        let result: Result<String, _> = stmt.query_row(params![embedding_id], |row| row.get(0));
+        match result {
+            Ok(text) => Ok(Some(text)),
+            Err(duckdb::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
 }

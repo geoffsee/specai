@@ -4,10 +4,14 @@ pub mod formatting;
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use crate::agent::core::MemoryRecallStrategy;
 use crate::agent::{AgentBuilder, AgentCore, AgentOutput};
+use crate::agent::{create_transcription_provider, create_transcription_provider_simple, TranscriptionProvider};
 use crate::bootstrap_self::BootstrapSelf;
 use crate::config::{AgentProfile, AgentRegistry, AppConfig};
 use crate::persistence::Persistence;
@@ -35,7 +39,10 @@ pub enum Command {
     GraphShow(Option<usize>),
     GraphClear,
     // Audio commands
-    Listen(Option<String>, Option<u64>), // scenario, duration in seconds
+    ListenStart(Option<u64>), // duration in seconds
+    ListenStop,
+    ListenStatus,
+    Listen(Option<String>, Option<u64>), // Deprecated: kept for backward compatibility
     PasteStart,
     RunSpec(PathBuf),
     Init(Option<Vec<String>>), // optional plugins list
@@ -108,10 +115,20 @@ pub fn parse_command(input: &str) -> Command {
                 _ => Command::Help,
             },
             "listen" => {
-                // Parse optional scenario and duration
-                let scenario = parts.next().map(|s| s.to_string());
-                let duration = parts.next().and_then(|s| s.parse::<u64>().ok());
-                Command::Listen(scenario, duration)
+                match parts.next() {
+                    Some("stop") => Command::ListenStop,
+                    Some("status") => Command::ListenStatus,
+                    Some("start") => {
+                        let duration = parts.next().and_then(|s| s.parse::<u64>().ok());
+                        Command::ListenStart(duration)
+                    }
+                    Some(duration_str) => {
+                        // If it's a number, treat it as duration for backward compatibility
+                        let duration = duration_str.parse::<u64>().ok();
+                        Command::ListenStart(duration)
+                    }
+                    None => Command::ListenStart(None),
+                }
             }
             "paste" => Command::PasteStart,
             "init" => {
@@ -157,22 +174,43 @@ pub fn parse_command(input: &str) -> Command {
     }
 }
 
+/// Transcription task handle for background listening
+struct TranscriptionTask {
+    handle: JoinHandle<()>,
+    stop_tx: mpsc::UnboundedSender<()>,
+    started_at: std::time::SystemTime,
+    duration_secs: Option<u64>,
+    chunks_rx: mpsc::UnboundedReceiver<String>,
+}
+
 pub struct CliState {
     pub config: AppConfig,
     pub persistence: Persistence,
     pub registry: AgentRegistry,
     pub agent: AgentCore,
+    pub transcription_provider: Arc<dyn TranscriptionProvider>,
     pub reasoning_messages: Vec<String>,
     pub status_message: String,
     paste_mode: bool,
     paste_buffer: String,
     init_allowed: bool,
+    transcription_task: Option<TranscriptionTask>,
 }
 
 impl CliState {
     /// Initialize from loaded config (AppConfig::load)
     pub fn initialize() -> Result<Self> {
         let config = AppConfig::load()?;
+        Self::new_with_config(config)
+    }
+
+    /// Initialize from a specific config file path
+    pub fn initialize_with_path(path: Option<PathBuf>) -> Result<Self> {
+        let config = if let Some(config_path) = path {
+            AppConfig::load_from_file(&config_path)?
+        } else {
+            AppConfig::load()?
+        };
         Self::new_with_config(config)
     }
 
@@ -211,21 +249,73 @@ impl CliState {
         // Create the AgentCore from registry + config
         let agent = AgentBuilder::new_with_registry(&registry, &config, None)?;
 
+        // Create transcription provider from config
+        let transcription_provider = {
+            use crate::agent::transcription_factory::TranscriptionProviderConfig;
+            let provider_config = TranscriptionProviderConfig {
+                provider: config.audio.provider.clone(),
+                api_key_source: config.audio.api_key_source.clone(),
+                endpoint: config.audio.endpoint.clone(),
+                on_device: config.audio.on_device,
+                settings: serde_json::Value::Null,
+            };
+            create_transcription_provider(&provider_config)
+                .or_else(|_| create_transcription_provider_simple("mock"))
+                .context("Failed to create transcription provider")?
+        };
+
         let mut state = Self {
             config,
             persistence,
             registry,
             agent,
+            transcription_provider,
             reasoning_messages: vec!["Reasoning: idle".to_string()],
             status_message: "Status: initializing".to_string(),
             paste_mode: false,
             paste_buffer: String::new(),
             init_allowed: true,
+            transcription_task: None,
         };
 
         state.refresh_init_gate()?;
 
         Ok(state)
+    }
+
+    /// Save transcription chunks to database with embeddings
+    async fn save_transcription_chunks(&self, chunks: &[String]) -> usize {
+        let session_id = self.agent.session_id();
+        let mut chunk_count = 0;
+        for (idx, text) in chunks.iter().enumerate() {
+            let timestamp = chrono::Utc::now();
+
+            // Insert transcription
+            match self.persistence.insert_transcription(
+                session_id,
+                idx as i64,
+                text,
+                timestamp,
+            ) {
+                Ok(transcription_id) => {
+                    chunk_count += 1;
+
+                    // Generate and link embedding
+                    if let Some(embedding_id) = self.agent.generate_embedding(text).await {
+                        if let Err(e) = self.persistence.update_transcription_embedding(
+                            transcription_id,
+                            embedding_id,
+                        ) {
+                            eprintln!("[Transcription] Failed to link embedding for chunk {}: {}", idx, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[Transcription] Failed to save chunk {}: {}", idx, e);
+                }
+            }
+        }
+        chunk_count
     }
 
     /// Handle a single line of input. Returns an optional output string.
@@ -440,65 +530,183 @@ impl CliState {
                     count, session_id
                 )))
             }
-            Command::Listen(scenario, duration) => {
-                // Execute the audio_transcribe tool
-                let tools = self.agent.tool_registry();
-                if !tools.has("audio_transcribe") {
-                    return Ok(Some(
-                        "Audio transcription tool is not available. \
-                        Please ensure it's registered in the tool registry."
-                            .to_string(),
-                    ));
+            Command::ListenStart(duration) => {
+                use crate::agent::{TranscriptionConfig, TranscriptionEvent};
+                use futures::StreamExt;
+
+                // Check if already running
+                if self.transcription_task.is_some() {
+                    return Ok(Some("Transcription is already running. Use /listen stop to stop it first.".to_string()));
                 }
 
-                // Build tool arguments
-                let mut args = serde_json::json!({
-                    "mode": "stream",
-                    "persist": true,
-                });
+                // Build transcription config from app config
+                let config = TranscriptionConfig {
+                    duration_secs: duration.or(Some(self.config.audio.default_duration_secs)),
+                    chunk_duration_secs: self.config.audio.chunk_duration_secs,
+                    model: self.config.audio.model.clone().unwrap_or_else(|| "whisper-1".to_string()),
+                    out_file: self.config.audio.out_file.clone(),
+                    language: self.config.audio.language.clone(),
+                    endpoint: self.config.audio.endpoint.clone(),
+                };
 
-                if let Some(scenario_name) = scenario {
-                    args["scenario"] = serde_json::json!(scenario_name);
-                } else {
-                    args["scenario"] = serde_json::json!("simple_conversation");
-                }
+                // Create stop channel and chunks channel
+                let (stop_tx, mut stop_rx) = mpsc::unbounded_channel::<()>();
+                let (chunks_tx, chunks_rx) = mpsc::unbounded_channel::<String>();
 
-                if let Some(dur) = duration {
-                    args["duration"] = serde_json::json!(dur);
-                } else {
-                    args["duration"] = serde_json::json!(30); // Default 30 seconds
-                }
+                // Clone provider for background task
+                let provider = Arc::clone(&self.transcription_provider);
+                let provider_name = provider.metadata().name.clone();
+                let provider_name_display = provider_name.clone(); // Clone for response message
+                let started_at = std::time::SystemTime::now();
 
-                // Execute the tool
-                let result = tools.execute("audio_transcribe", args).await?;
+                // Spawn background task
+                let handle = tokio::spawn(async move {
+                    // Start transcription
+                    let stream_result = provider.start_transcription(&config).await;
 
-                if result.success {
-                    // Parse the result JSON
-                    let output: serde_json::Value = serde_json::from_str(&result.output)?;
-                    let message = output["message"]
-                        .as_str()
-                        .unwrap_or("Audio transcription started.");
+                    match stream_result {
+                        Ok(mut stream) => {
+                            println!("\n[Transcription] Started using {}", provider_name);
 
-                    // Display sample transcriptions if available
-                    let mut response = message.to_string();
-                    if let Some(samples) = output["sample_transcriptions"].as_array() {
-                        if !samples.is_empty() {
-                            response.push_str("\n\nInitial transcriptions:");
-                            for sample in samples {
-                                if let Some(text) = sample.as_str() {
-                                    response.push_str(&format!("\n  • {}", text));
+                            loop {
+                                tokio::select! {
+                                    // Check for stop signal
+                                    _ = stop_rx.recv() => {
+                                        println!("\n[Transcription] Stopped by user");
+                                        break;
+                                    }
+                                    // Process transcription events
+                                    event = stream.next() => {
+                                        match event {
+                                            Some(Ok(TranscriptionEvent::Started { .. })) => {
+                                                // Already logged above
+                                            }
+                                            Some(Ok(TranscriptionEvent::Transcription { chunk_id, text, .. })) => {
+                                                println!("[Transcription] Chunk {}: {}", chunk_id, text);
+                                                let _ = chunks_tx.send(text);
+                                            }
+                                            Some(Ok(TranscriptionEvent::Error { chunk_id, message })) => {
+                                                eprintln!("[Transcription] Error in chunk {}: {}", chunk_id, message);
+                                            }
+                                            Some(Ok(TranscriptionEvent::Completed { total_chunks, .. })) => {
+                                                println!("[Transcription] Completed. Processed {} chunks.", total_chunks);
+                                                break;
+                                            }
+                                            Some(Err(e)) => {
+                                                eprintln!("[Transcription] Error: {}", e);
+                                                break;
+                                            }
+                                            None => {
+                                                break;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
+                        Err(e) => {
+                            eprintln!("[Transcription] Failed to start: {}", e);
+                        }
+                    }
+                });
+
+                // Store task info
+                self.transcription_task = Some(TranscriptionTask {
+                    handle,
+                    stop_tx,
+                    started_at,
+                    duration_secs: duration.or(Some(self.config.audio.default_duration_secs)),
+                    chunks_rx,
+                });
+
+                Ok(Some(format!(
+                    "Started background transcription using {} (duration: {} seconds)\nUse /listen stop to stop, /listen status to check status.",
+                    provider_name_display,
+                    duration.or(Some(self.config.audio.default_duration_secs)).unwrap_or(30)
+                )))
+            }
+            Command::ListenStop => {
+                if let Some(mut task) = self.transcription_task.take() {
+                    // Send stop signal
+                    let _ = task.stop_tx.send(());
+                    // Abort the task
+                    task.handle.abort();
+
+                    // Collect any remaining chunks
+                    let mut chunks = Vec::new();
+                    while let Ok(text) = task.chunks_rx.try_recv() {
+                        chunks.push(text);
                     }
 
-                    Ok(Some(response))
-                } else {
+                    // Save to database
+                    let chunk_count = self.save_transcription_chunks(&chunks).await;
+
+                    let elapsed = task.started_at.elapsed()
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+
                     Ok(Some(format!(
-                        "Audio transcription failed: {}",
-                        result.error.unwrap_or_else(|| "Unknown error".to_string())
+                        "Stopped transcription (ran for {} seconds, saved {} chunks to database)",
+                        elapsed, chunk_count
                     )))
+                } else {
+                    Ok(Some("No transcription is currently running.".to_string()))
                 }
+            }
+            Command::ListenStatus => {
+                // Check if task is finished and save chunks if so
+                if let Some(task) = self.transcription_task.take() {
+                    if task.handle.is_finished() {
+                        // Collect chunks
+                        let mut chunks = Vec::new();
+                        let mut chunks_rx = task.chunks_rx;
+                        while let Ok(text) = chunks_rx.try_recv() {
+                            chunks.push(text);
+                        }
+
+                        // Save to database
+                        let chunk_count = self.save_transcription_chunks(&chunks).await;
+
+                        let elapsed = task.started_at.elapsed()
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+
+                        return Ok(Some(format!(
+                            "Transcription completed (ran for {} seconds, saved {} chunks to database)",
+                            elapsed, chunk_count
+                        )));
+                    } else {
+                        // Put it back since it's still running
+                        self.transcription_task = Some(task);
+                    }
+                }
+
+                if let Some(ref task) = self.transcription_task {
+                    let elapsed = task.started_at.elapsed()
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+
+                    let duration_info = if let Some(dur) = task.duration_secs {
+                        format!("/{} seconds", dur)
+                    } else {
+                        String::from(" (continuous)")
+                    };
+
+                    Ok(Some(format!(
+                        "Transcription status: running\nElapsed: {}{}\nUse /listen stop to stop and save chunks.",
+                        elapsed,
+                        duration_info
+                    )))
+                } else {
+                    Ok(Some("No transcription is currently running.\nUse /listen start [duration] to start.".to_string()))
+                }
+            }
+            Command::Listen(_scenario, duration) => {
+                // Redirect to new command
+                Ok(Some(format!(
+                    "The /listen command has been updated. Use:\n  /listen start [duration] - Start background transcription\n  /listen stop - Stop transcription\n  /listen status - Check status\n\nStarting transcription with {} seconds...",
+                    duration.unwrap_or(self.config.audio.default_duration_secs)
+                )))
             }
             Command::PasteStart => {
                 // Paste mode is handled at the REPL loop level; this arm is mainly for tests
@@ -754,6 +962,15 @@ impl CliState {
             Command::GraphShow(None) => "Status: inspecting graph".to_string(),
             Command::GraphClear => "Status: clearing session graph".to_string(),
             Command::Init(_) => "Status: bootstrapping repository graph".to_string(),
+            Command::ListenStart(duration) => {
+                let mut status = "Status: starting background transcription".to_string();
+                if let Some(d) = duration {
+                    status.push_str(&format!(" for {} seconds", d));
+                }
+                status
+            }
+            Command::ListenStop => "Status: stopping transcription".to_string(),
+            Command::ListenStatus => "Status: checking transcription status".to_string(),
             Command::Listen(scenario, duration) => {
                 let mut status = "Status: starting audio transcription".to_string();
                 if let Some(s) = scenario {

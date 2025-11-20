@@ -31,6 +31,40 @@ prompt = "specai (openai)> "
 # Log level: "trace", "debug", "info", "warn", "error"
 level = "info"
 
+# Audio transcription configuration
+[audio]
+# Transcription provider: "mock" or "vttrs"
+provider = "vttrs"
+
+# Model for transcription (e.g., "whisper-1", "whisper-large-v3")
+model = "whisper-1"
+
+# API key source for cloud transcription (optional)
+# Examples: "env:OPENAI_API_KEY", "file:~/.secrets/api_key"
+# api_key_source = "env:OPENAI_API_KEY"
+
+# Use on-device (offline) transcription
+# Set to true to use local Whisper model without API key
+on_device = false
+
+# Custom API endpoint (optional, defaults to OpenAI)
+# endpoint = "https://api.openai.com/v1"
+
+# Audio chunk duration in seconds (how often to send audio for transcription)
+chunk_duration_secs = 5.0
+
+# Default transcription duration in seconds (for /listen command)
+default_duration_secs = 30
+
+# Output file path for saving transcripts (optional)
+# out_file = "~/transcripts/recording.txt"
+
+# Language code (optional, e.g., "en", "es", "fr")
+# language = "en"
+
+# Automatically respond to transcriptions with AI
+auto_respond = false
+
 # ========== DEFAULT AGENT WITH ALL FEATURES ==========
 [agents.default]
 # System prompt
