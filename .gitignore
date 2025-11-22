@@ -7,3 +7,8 @@ prompt.md
 .toak-ignore
 /*.db
 /docs
+
+# DuckDB local installation
+/libduckdb
+/duckdb_env.sh
+libduckdb-osx-universal.zip

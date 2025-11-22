@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - ci
   pull_request:
 
 jobs:
@@ -11,15 +12,6 @@ jobs:
     name: build-and-test
     runs-on: ubuntu-latest
     steps:
-      - name: Free Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
-          df -h
-
       - name: Checkout
         uses: actions/checkout@v4
 #
@@ -31,13 +23,24 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
+            /opt/duckdb/
           key: ${{ runner.os }}-cargo-${{ github.ref_name }}
 #
       - name: Setup Rust
         run: rustup update stable && rustup default stable
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: |
+          apt-get update && \
+          apt-get update && apt-get install -y \
+          pkg-config \
+          cmake \
+          libssl-dev \
+          curl \
+          wget \
+          unzip \
+          libasound2-dev \
+          && rm -rf /var/lib/apt/lists/*
 
       - name: Tests
         run: cargo test

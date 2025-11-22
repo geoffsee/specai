@@ -1,0 +1,39 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+*.pdb
+
+# IDE files
+.idea
+.vscode
+*.iml
+
+# Git
+.git
+.gitignore
+
+# Documentation
+/docs
+README.md
+LICENSE
+
+# Test artifacts
+.gsio-memory
+prompt.md
+.toak-ignore
+
+# Local DuckDB installation (we use bundled in container)
+/libduckdb
+/duckdb_env.sh
+libduckdb-osx-universal.zip
+
+# Database files
+*.db
+*.duckdb
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.github

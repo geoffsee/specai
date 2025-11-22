@@ -1,6 +1,6 @@
 [package]
 name = "spec-ai"
-version = "0.2.1"
+version = "0.3.3"
 edition = "2021"
 description = "A framework for building AI agents with structured outputs, policy enforcement, and execution tracking"
 license = "MIT OR Apache-2.0"
@@ -14,7 +14,8 @@ name = "spec_ai"
 path = "src/lib.rs"
 
 [dependencies]
-duckdb = { version = "1.0", features = ["bundled"] }
+duckdb = { version = "1", default-features = false }
+libduckdb-sys = "1"
 anyhow = "1.0"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -42,13 +43,15 @@ async-openai = "0.30.1"
 termimad = "0.30"
 crossterm = "0.28"
 terminal_size = "0.4"
-extractous = "0.3.0"
+extractous = { version = "0.3.0" }
 spider = { version = "2", optional = true }
 html-escape = "0.2"
 vtt-rs = "0.1.3"
 
 [features]
-default = ["openai", "lmstudio", "web-scraping", "vttrs"]
+default = ["bundled", "openai", "lmstudio", "web-scraping", "vttrs"]
+bundled = ["duckdb/bundled"]
+duck-sys = []
 openai = ["reqwest"]
 anthropic = ["reqwest"]
 ollama = ["reqwest"]

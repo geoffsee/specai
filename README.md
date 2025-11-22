@@ -5,7 +5,7 @@ An agentic AI CLI tool written in Rust.
 ## Quick Start
 
 ```shell
-cargo binstall spec-ai
+cargo binstall spec-ai --features bundled
 ```
 
 ## Native dependencies
@@ -30,6 +30,66 @@ cargo binstall spec-ai
    * If you hit `system-configuration` / `reqwest` panics such as `Attempted to create a NULL object`, ensure your macOS SDK/frameworks are intact for CoreFoundation and run the build again after setting `GRAALVM_HOME`.
 
 Once the native prerequisites are installed, rerun `cargo clean && cargo test file_extract`; the initial build can take two-to-three minutes while the Tika native libs compile.
+
+## DuckDB Setup
+
+This project uses DuckDB for data persistence. You have three options:
+
+### Option 1: Bundled DuckDB (Recommended for Development)
+
+Build and test with the bundled feature, which includes DuckDB:
+
+```bash
+cargo build --features bundled
+cargo test --features bundled
+```
+
+### Option 2: System DuckDB (macOS)
+
+Run the setup script to download and configure DuckDB locally:
+
+```bash
+./setup_duckdb.sh
+source duckdb_env.sh
+cargo build
+cargo test
+```
+
+To persist the environment variables, add to your shell profile:
+
+```bash
+echo 'source /path/to/spec-ai/duckdb_env.sh' >> ~/.zshrc
+```
+
+### Option 3: Homebrew (macOS)
+
+```bash
+brew install duckdb
+cargo build
+cargo test
+```
+
+## Container Usage
+
+The project includes a Containerfile for running spec-ai in a containerized environment:
+
+```bash
+# Build the container image
+podman build -t spec-ai .
+# or with Docker
+docker build -t spec-ai .
+
+# Run the container
+podman run --rm spec-ai --help
+
+# Run with a config file mounted
+podman run --rm -v ./spec-ai.config.toml:/home/specai/spec-ai.config.toml:ro spec-ai
+
+# Interactive mode
+podman run --rm -it spec-ai bash
+```
+
+The container image includes all required dependencies (GraalVM, Tesseract, DuckDB) and uses the bundled DuckDB feature.
 
 ### Installation
 
