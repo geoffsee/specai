@@ -197,15 +197,33 @@ deliverables = [
 
 Specs must include a `goal` plus at least one entry in `tasks` or `deliverables`. The CLI prints a preview before executing the spec with the current agent.
 
-To batch test specs (or just run a smoke check), use the helper script:
+To run spec files, use the `spec-ai run` command:
 
 ```bash
-scripts/run_specs.sh            # runs specs/smoke.spec by default
-scripts/run_specs.sh specs/     # run every *.spec inside specs/
-SPEC_AI_CMD="cargo run --" scripts/run_specs.sh custom.spec
+spec-ai run                      # runs specs/smoke.spec by default
+spec-ai run specs/               # run all *.spec files inside specs/
+spec-ai run custom.spec          # run a specific spec file
+spec-ai run spec1.spec spec2.spec # run multiple spec files
 ```
 
 The default `specs/smoke.spec` is purposely simple and works against the mock provider so you can verify the CLI still functions after code changes.
+
+## Documentation
+
+For detailed documentation, see:
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - System architecture and component overview
+- [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) - Complete configuration guide
+- [`docs/SETUP.md`](docs/SETUP.md) - Detailed setup instructions
+- [`docs/SELF-INIT.md`](docs/SELF-INIT.md) - Bootstrap self-discovery process
+- [`docs/VERIFY.md`](docs/VERIFY.md) - Testing and verification guide
+
+Example configurations are available in `examples/configs/`:
+- `config.openai.example.toml` - OpenAI provider setup
+- `config.lmstudio.toml` - Local LM Studio configuration
+- `config.multi_model.example.toml` - Multi-model reasoning setup
+- `config.graph.example.toml` - Knowledge graph configuration
+
+Example code demonstrating various features can be found in `examples/code/`.
 
 ## Architecture
 

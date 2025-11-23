@@ -2,8 +2,11 @@
 
 ## Project Structure & Module Organization
 - `src/` hosts the CLI entry (`main.rs`), library surface (`lib.rs`), config helpers, persistence layer, and shared types.
-- `tests/` contains integration suites; `specs/` plus `scripts/` house reusable `.spec` plans and execution helpers; `examples/` and `docs/` track reference code and prose.
-- Root assets include config samples (`config.*.example.toml`, `spec-ai.config.toml`), the `Containerfile`, and the bundled DuckDB helper in `libduckdb`.
+- `tests/` contains integration suites; `specs/` houses reusable `.spec` plans; `examples/` contains reference code and configuration samples; `docs/` contains all documentation.
+- `examples/code/` contains example Rust code demonstrating various features.
+- `examples/configs/` contains sample configuration files for different providers and setups.
+- `docs/` contains architecture docs (`ARCHITECTURE.md`), configuration guide (`CONFIGURATION.md`), setup instructions (`SETUP.md`), and other documentation.
+- Root assets include the main config (`spec-ai.config.toml`), the `Containerfile`, and the bundled DuckDB helper in `libduckdb`.
 
 ## Build, Test, and Development Commands
 - `cargo binstall spec-ai --features bundled`: install the CLI with the bundled DuckDB runtime for fast iteration.
@@ -20,7 +23,7 @@
 ## Testing Guidelines
 - Default test run: `cargo test --all-targets`.
 - Feature-specific suites: `cargo test --features api`, `cargo test --lib plugin`, `cargo test --lib policy`, `cargo test --test policy_integration_tests`.
-- Validate agent plans with `scripts/run_specs.sh specs/` (or `scripts/run_specs.sh specs/smoke.spec`) and include any GraalVM/Tesseract setup steps needed for file extraction.
+- Validate agent plans with `spec-ai run specs/` (or `spec-ai run specs/smoke.spec`) and include any GraalVM/Tesseract setup steps needed for file extraction.
 - Integration tests in `tests/` follow the `*_tests.rs` pattern and focus on persistence and agent flow behavior.
 
 ## Commit & Pull Request Guidelines
