@@ -385,6 +385,7 @@ AI reasoning with graph-based memory:
 Prime the knowledge graph with source facts before the first prompt:
 
 - **`/init`** — Run the bootstrap-self pipeline against the repo (only valid as the first message)
+- **`/refresh`** — Re-run the bootstrap-self pipeline with caching enabled (safe after `/init`)
 
 ## Audio Transcription
 Mock audio input transcription for testing:

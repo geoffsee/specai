@@ -19,7 +19,6 @@ const CONFIG_FILE_NAME: &str = "spec-ai.config.toml";
 /// Top-level application configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
-
     /// Database configuration
     #[serde(default)]
     pub database: DatabaseConfig,

@@ -1,4 +1,5 @@
 use crate::bootstrap_self::plugin::{BootstrapPlugin, PluginContext, PluginOutcome};
+use crate::persistence::TokenizedFileRecord;
 use crate::types::{EdgeType, NodeType};
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -76,6 +77,7 @@ impl BootstrapPlugin for UniversalCodePlugin {
 
         // Phase 1: File Classification
         let classification = self.classify_files(context.repo_root)?;
+        let token_cache = self.load_token_cache(&context)?;
 
         // Phase 2: Intent Analysis (using fast model simulation)
         let intent = self.analyze_intent(context.repo_root, &classification)?;
@@ -89,6 +91,7 @@ impl BootstrapPlugin for UniversalCodePlugin {
             &classification,
             &intent,
             &semantic,
+            &token_cache,
             &mut outcome,
         )?;
 
@@ -112,6 +115,14 @@ impl BootstrapPlugin for UniversalCodePlugin {
 }
 
 impl UniversalCodePlugin {
+    fn load_token_cache(&self, context: &PluginContext) -> Result<TokenCache> {
+        let records = context
+            .persistence
+            .list_tokenized_files(context.session_id)
+            .unwrap_or_default();
+        Ok(TokenCache::new(records))
+    }
+
     fn contains_code_files(&self, repo_root: &Path) -> bool {
         if let Ok(entries) = fs::read_dir(repo_root) {
             for entry in entries.flatten() {
@@ -472,9 +483,11 @@ impl UniversalCodePlugin {
         classification: &FileClassification,
         intent: &IntentAnalysis,
         semantic: &SemanticAnalysis,
+        token_cache: &TokenCache,
         outcome: &mut PluginOutcome,
     ) -> Result<()> {
         // Create repository entity node
+        let repo_tokens = token_cache.repo_totals();
         let repo_props = json!({
             "name": intent.project_name,
             "purpose": intent.purpose_statement,
@@ -491,6 +504,12 @@ impl UniversalCodePlugin {
             "complexity": semantic.complexity_estimate,
             "captured_at": Utc::now().to_rfc3339(),
             "bootstrap_source": "universal-code-plugin",
+            "token_profile": {
+                "files": repo_tokens.files,
+                "raw_tokens": repo_tokens.raw_tokens,
+                "cleaned_tokens": repo_tokens.cleaned_tokens,
+                "bytes_captured": repo_tokens.bytes,
+            },
         });
 
         let repo_node_id = context.persistence.insert_graph_node(
@@ -506,11 +525,18 @@ impl UniversalCodePlugin {
 
         // Create component nodes
         for component in &classification.components {
+            let tokens = token_cache.component_totals(component);
             let component_props = json!({
                 "name": component.name,
                 "path": component.relative_path,
                 "type": component.kind,
                 "bootstrap_source": "universal-code-plugin",
+                "token_profile": {
+                    "files": tokens.files,
+                    "raw_tokens": tokens.raw_tokens,
+                    "cleaned_tokens": tokens.cleaned_tokens,
+                    "bytes_captured": tokens.bytes,
+                },
             });
 
             let component_node_id = context.persistence.insert_graph_node(
@@ -792,6 +818,63 @@ struct SemanticAnalysis {
     complexity_estimate: String,
     key_abstractions: Vec<String>,
     critical_features: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct TokenTotals {
+    files: usize,
+    raw_tokens: usize,
+    cleaned_tokens: usize,
+    bytes: usize,
+}
+
+struct TokenCache {
+    records: Vec<TokenizedFileRecord>,
+}
+
+impl TokenCache {
+    fn new(records: Vec<TokenizedFileRecord>) -> Self {
+        Self { records }
+    }
+
+    fn repo_totals(&self) -> TokenTotals {
+        let mut totals = TokenTotals {
+            files: 0,
+            raw_tokens: 0,
+            cleaned_tokens: 0,
+            bytes: 0,
+        };
+        for rec in &self.records {
+            totals.files += 1;
+            totals.raw_tokens += rec.raw_tokens;
+            totals.cleaned_tokens += rec.cleaned_tokens;
+            totals.bytes += rec.bytes_captured;
+        }
+        totals
+    }
+
+    fn component_totals(&self, component: &ComponentInfo) -> TokenTotals {
+        let mut totals = TokenTotals {
+            files: 0,
+            raw_tokens: 0,
+            cleaned_tokens: 0,
+            bytes: 0,
+        };
+        for rec in &self.records {
+            if Self::is_under_component(&rec.path, &component.relative_path) {
+                totals.files += 1;
+                totals.raw_tokens += rec.raw_tokens;
+                totals.cleaned_tokens += rec.cleaned_tokens;
+                totals.bytes += rec.bytes_captured;
+            }
+        }
+        totals
+    }
+
+    fn is_under_component(path: &str, component_path: &str) -> bool {
+        let prefix = component_path.trim_end_matches('/');
+        path == prefix || path.starts_with(&format!("{}/", prefix))
+    }
 }
 
 // ============ Helper Functions ============

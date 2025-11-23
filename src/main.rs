@@ -34,7 +34,10 @@ fn collect_spec_files(path: &PathBuf) -> Result<Vec<PathBuf>> {
         if path.extension().and_then(|s| s.to_str()) == Some("spec") {
             specs.push(path.clone());
         } else {
-            eprintln!("Warning: Skipping '{}' (expected .spec extension)", path.display());
+            eprintln!(
+                "Warning: Skipping '{}' (expected .spec extension)",
+                path.display()
+            );
         }
     } else if path.is_dir() {
         for entry in WalkDir::new(path)
@@ -64,8 +67,12 @@ async fn run_spec_file(cli: &mut CliState, spec_path: &PathBuf) -> Result<bool> 
         return Ok(false);
     }
 
-    let abs_path = spec_path.canonicalize()
-        .with_context(|| format!("Failed to resolve absolute path for '{}'", spec_path.display()))?;
+    let abs_path = spec_path.canonicalize().with_context(|| {
+        format!(
+            "Failed to resolve absolute path for '{}'",
+            spec_path.display()
+        )
+    })?;
 
     println!("=== Running spec: {} ===", abs_path.display());
 
@@ -110,7 +117,9 @@ async fn run_specs_command(config_path: Option<PathBuf>, spec_paths: Vec<PathBuf
         Ok(cli) => cli,
         Err(e) => {
             let error_chain = format!("{:#}", e);
-            if error_chain.contains("Could not set lock") || error_chain.contains("Conflicting lock") {
+            if error_chain.contains("Could not set lock")
+                || error_chain.contains("Conflicting lock")
+            {
                 eprintln!("Error: Another instance of spec-ai is already running.");
                 eprintln!();
                 eprintln!("Only one instance can access the database at a time.");

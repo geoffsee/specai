@@ -47,6 +47,8 @@ extractous = { version = "0.3.0" }
 spider = { version = "2", optional = true }
 html-escape = "0.2"
 vtt-rs = "0.1.3"
+toak-rs = "4.0.8"
+blake3 = "1.5"
 
 [features]
 default = ["bundled", "openai", "lmstudio", "web-scraping", "vttrs"]

@@ -844,4 +844,109 @@ impl Persistence {
             Err(e) => Err(e.into()),
         }
     }
+
+    // ---------- Tokenized Files Cache ----------
+
+    /// Persist tokenization metadata for a file, replacing any existing entry for the path.
+    pub fn upsert_tokenized_file(
+        &self,
+        session_id: &str,
+        path: &str,
+        file_hash: &str,
+        raw_tokens: usize,
+        cleaned_tokens: usize,
+        bytes_captured: usize,
+        truncated: bool,
+        embedding_id: Option<i64>,
+    ) -> Result<i64> {
+        let conn = self.conn();
+        conn.execute(
+            "DELETE FROM tokenized_files WHERE session_id = ? AND path = ?",
+            params![session_id, path],
+        )?;
+        let mut stmt = conn.prepare("INSERT INTO tokenized_files (session_id, path, file_hash, raw_tokens, cleaned_tokens, bytes_captured, truncated, embedding_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")?;
+        let id: i64 = stmt.query_row(
+            params![
+                session_id,
+                path,
+                file_hash,
+                raw_tokens as i64,
+                cleaned_tokens as i64,
+                bytes_captured as i64,
+                truncated,
+                embedding_id
+            ],
+            |row| row.get(0),
+        )?;
+        Ok(id)
+    }
+
+    pub fn get_tokenized_file(
+        &self,
+        session_id: &str,
+        path: &str,
+    ) -> Result<Option<TokenizedFileRecord>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id, session_id, path, file_hash, raw_tokens, cleaned_tokens, bytes_captured, truncated, embedding_id, CAST(updated_at AS TEXT) FROM tokenized_files WHERE session_id = ? AND path = ? LIMIT 1")?;
+        let mut rows = stmt.query(params![session_id, path])?;
+        if let Some(row) = rows.next()? {
+            let record = TokenizedFileRecord::from_row(row)?;
+            Ok(Some(record))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list_tokenized_files(&self, session_id: &str) -> Result<Vec<TokenizedFileRecord>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id, session_id, path, file_hash, raw_tokens, cleaned_tokens, bytes_captured, truncated, embedding_id, CAST(updated_at AS TEXT) FROM tokenized_files WHERE session_id = ? ORDER BY path")?;
+        let mut rows = stmt.query(params![session_id])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(TokenizedFileRecord::from_row(row)?);
+        }
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TokenizedFileRecord {
+    pub id: i64,
+    pub session_id: String,
+    pub path: String,
+    pub file_hash: String,
+    pub raw_tokens: usize,
+    pub cleaned_tokens: usize,
+    pub bytes_captured: usize,
+    pub truncated: bool,
+    pub embedding_id: Option<i64>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TokenizedFileRecord {
+    fn from_row(row: duckdb::Row) -> Result<Self> {
+        let id: i64 = row.get(0)?;
+        let session_id: String = row.get(1)?;
+        let path: String = row.get(2)?;
+        let file_hash: String = row.get(3)?;
+        let raw_tokens: i64 = row.get(4)?;
+        let cleaned_tokens: i64 = row.get(5)?;
+        let bytes_captured: i64 = row.get(6)?;
+        let truncated: bool = row.get(7)?;
+        let embedding_id: Option<i64> = row.get(8)?;
+        let updated_at: String = row.get(9)?;
+
+        Ok(Self {
+            id,
+            session_id,
+            path,
+            file_hash,
+            raw_tokens: raw_tokens.max(0) as usize,
+            cleaned_tokens: cleaned_tokens.max(0) as usize,
+            bytes_captured: bytes_captured.max(0) as usize,
+            truncated,
+            embedding_id,
+            updated_at: updated_at.parse().unwrap_or_else(|_| Utc::now()),
+        })
+    }
 }

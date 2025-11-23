@@ -7,7 +7,8 @@ use anyhow::{anyhow, Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use plugins::{RustCargoPlugin, UniversalCodePlugin};
+use plugin::BootstrapMode;
+use plugins::{RustCargoPlugin, ToakTokenizerPlugin, UniversalCodePlugin};
 use registry::PluginRegistry;
 
 #[derive(Debug)]
@@ -46,12 +47,17 @@ impl<'a> BootstrapSelf<'a> {
     /// Initialize the plugin registry with default plugins
     fn init_plugins(&self) -> Result<()> {
         self.plugins.register(Arc::new(RustCargoPlugin))?;
+        self.plugins.register(Arc::new(ToakTokenizerPlugin))?;
         self.plugins.register(Arc::new(UniversalCodePlugin))?;
         Ok(())
     }
 
     /// Run bootstrap with specified plugins, or auto-detect if plugins is None
-    pub fn run_with_plugins(&self, plugins: Option<Vec<String>>) -> Result<BootstrapOutcome> {
+    pub fn run_with_plugins_mode(
+        &self,
+        plugins: Option<Vec<String>>,
+        mode: BootstrapMode,
+    ) -> Result<BootstrapOutcome> {
         self.init_plugins()?;
 
         let active_plugins = if let Some(plugin_names) = plugins {
@@ -73,6 +79,7 @@ impl<'a> BootstrapSelf<'a> {
             persistence: self.persistence,
             session_id: self.session_id,
             repo_root: &self.repo_root,
+            mode,
         };
 
         let mut total_nodes = 0;
@@ -136,6 +143,14 @@ impl<'a> BootstrapSelf<'a> {
     /// Run bootstrap with auto-detection (backward compatibility)
     pub fn run(&self) -> Result<BootstrapOutcome> {
         self.run_with_plugins(None)
+    }
+
+    pub fn run_with_plugins(&self, plugins: Option<Vec<String>>) -> Result<BootstrapOutcome> {
+        self.run_with_plugins_mode(plugins, BootstrapMode::Fresh)
+    }
+
+    pub fn refresh_with_plugins(&self, plugins: Option<Vec<String>>) -> Result<BootstrapOutcome> {
+        self.run_with_plugins_mode(plugins, BootstrapMode::Refresh)
     }
 }
 

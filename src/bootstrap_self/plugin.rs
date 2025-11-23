@@ -10,6 +10,7 @@ pub struct PluginContext<'a> {
     pub persistence: &'a Persistence,
     pub session_id: &'a str,
     pub repo_root: &'a PathBuf,
+    pub mode: BootstrapMode,
 }
 
 /// Outcome from a single plugin's bootstrap run
@@ -34,6 +35,12 @@ impl PluginOutcome {
             metadata: json!({}),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+pub enum BootstrapMode {
+    Fresh,
+    Refresh,
 }
 
 /// Trait that bootstrap plugins must implement

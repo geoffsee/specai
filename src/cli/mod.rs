@@ -46,7 +46,8 @@ pub enum Command {
     Listen(Option<String>, Option<u64>), // Deprecated: kept for backward compatibility
     PasteStart,
     RunSpec(PathBuf),
-    Init(Option<Vec<String>>), // optional plugins list
+    Init(Option<Vec<String>>),    // optional plugins list
+    Refresh(Option<Vec<String>>), // rerun bootstrap with caching
     Message(String),
     Empty,
 }
@@ -149,6 +150,24 @@ pub fn parse_command(input: &str) -> Command {
                     None
                 };
                 Command::Init(plugins)
+            }
+            "refresh" => {
+                let plugins = if let Some(arg) = parts.next() {
+                    if arg.starts_with("--plugins=") {
+                        Some(
+                            arg.strip_prefix("--plugins=")
+                                .unwrap_or("")
+                                .split(',')
+                                .map(|p| p.trim().to_string())
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                Command::Refresh(plugins)
             }
             "spec" => {
                 let args: Vec<&str> = parts.collect();
@@ -744,6 +763,20 @@ impl CliState {
                 self.init_allowed = false;
                 Ok(Some(format!(
                     "Knowledge graph bootstrap complete for '{}': {} nodes and {} edges captured ({} components, {} documents).",
+                    outcome.repository_name,
+                    outcome.nodes_created,
+                    outcome.edges_created,
+                    outcome.component_count,
+                    outcome.document_count
+                )))
+            }
+            Command::Refresh(plugins) => {
+                let bootstrapper =
+                    BootstrapSelf::from_environment(&self.persistence, self.agent.session_id())?;
+                let outcome = bootstrapper.refresh_with_plugins(plugins.clone())?;
+                self.init_allowed = false;
+                Ok(Some(format!(
+                    "Knowledge graph refresh complete for '{}': {} nodes and {} edges captured ({} components, {} documents).",
                     outcome.repository_name,
                     outcome.nodes_created,
                     outcome.edges_created,

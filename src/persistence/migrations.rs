@@ -40,6 +40,12 @@ pub fn run(conn: &Connection) -> Result<()> {
         migrations_applied = true;
     }
 
+    if current < 5 {
+        apply_v5(conn)?;
+        set_version(conn, 5)?;
+        migrations_applied = true;
+    }
+
     // Force checkpoint after migrations to ensure WAL is merged into the database file.
     // This prevents ALTER TABLE operations from being stuck in the WAL, which can cause
     // "no default database set" errors during WAL replay on subsequent startups.
@@ -225,4 +231,31 @@ fn apply_v4(conn: &Connection) -> Result<()> {
         "#,
     )
     .context("applying v4 schema (transcriptions table)")
+}
+
+fn apply_v5(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE SEQUENCE IF NOT EXISTS tokenized_files_id_seq START 1;
+
+        CREATE TABLE IF NOT EXISTS tokenized_files (
+            id BIGINT PRIMARY KEY DEFAULT nextval('tokenized_files_id_seq'),
+            session_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            raw_tokens INTEGER NOT NULL,
+            cleaned_tokens INTEGER NOT NULL,
+            bytes_captured INTEGER NOT NULL,
+            truncated BOOLEAN DEFAULT FALSE,
+            embedding_id BIGINT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(session_id, path),
+            FOREIGN KEY (embedding_id) REFERENCES memory_vectors(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tokenized_files_session ON tokenized_files(session_id);
+        CREATE INDEX IF NOT EXISTS idx_tokenized_files_hash ON tokenized_files(file_hash);
+        "#,
+    )
+    .context("applying v5 schema (tokenized file cache)")
 }

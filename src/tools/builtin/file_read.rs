@@ -265,9 +265,11 @@ impl Tool for FileReadTool {
                     let text = String::from_utf8_lossy(&bytes).to_string();
                     ("utf-8", text, actual_bytes)
                 }
-                FileReadFormat::Base64 => {
-                    ("base64", general_purpose::STANDARD.encode(&bytes), actual_bytes)
-                }
+                FileReadFormat::Base64 => (
+                    "base64",
+                    general_purpose::STANDARD.encode(&bytes),
+                    actual_bytes,
+                ),
             }
         };
 
@@ -346,7 +348,10 @@ mod tests {
         let result = tool.execute(args).await.unwrap();
         assert!(!result.success);
         assert!(result.error.is_some());
-        assert!(result.error.unwrap().contains("Consider using line-based reading"));
+        assert!(result
+            .error
+            .unwrap()
+            .contains("Consider using line-based reading"));
     }
 
     #[tokio::test]
@@ -431,6 +436,9 @@ mod tests {
         let result = tool.execute(args).await.unwrap();
         assert!(!result.success);
         assert!(result.error.is_some());
-        assert!(result.error.unwrap().contains("only supported with text format"));
+        assert!(result
+            .error
+            .unwrap()
+            .contains("only supported with text format"));
     }
 }
