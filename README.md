@@ -1,6 +1,42 @@
 # spec-ai
+### (Experimental)
+Agentic AI written in Rust. 
 
-An agentic AI CLI tool written in Rust.
+## Documentation
+
+For detailed documentation, see:
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - System architecture and component overview
+- [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) - Complete configuration guide
+- [`docs/SETUP.md`](docs/SETUP.md) - Detailed setup instructions
+- [`docs/SELF-INIT.md`](docs/SELF-INIT.md) - Bootstrap self-discovery process
+- [`docs/VERIFY.md`](docs/VERIFY.md) - Testing and verification guide
+
+Example configurations are available in `examples/configs/`:
+- `config.openai.example.toml` - OpenAI provider setup
+- `config.lmstudio.toml` - Local LM Studio configuration
+- `config.multi_model.example.toml` - Multi-model reasoning setup
+- `config.graph.example.toml` - Knowledge graph configuration
+
+Example code demonstrating various features can be found in `examples/code/`.
+
+## Architecture
+
+### Module Structure
+
+```
+src/
+├── config/          # Configuration system
+│   ├── mod.rs       # Core config loading and validation
+│   ├── agent.rs     # Agent profile definitions
+│   ├── registry.rs  # Agent registry and switching
+│   └── cache.rs     # Configuration caching
+├── persistence/     # Database layer
+│   ├── mod.rs       # Persistence API
+│   └── migrations.rs # Database migrations
+├── types.rs         # Shared types
+├── lib.rs           # Library exports
+└── main.rs          # CLI entry point
+```
 
 ## Quick Start
 
@@ -8,93 +44,18 @@ An agentic AI CLI tool written in Rust.
 cargo binstall spec-ai --features bundled
 ```
 
-## Native dependencies
-
-`file_extract` depends on [`extractous`](https://docs.rs/extractous/latest/extractous), which compiles native Apache Tika libraries through GraalVM and optionally calls Tesseract for OCR. Install the following before invoking `file_extract` or running `cargo test file_extract`:
-
-1. **GraalVM 23+ with native-image support**
-   * Use [sdkman](https://sdkman.io) to install a compatible JDK:
-     ```bash
-     sdk install java 23.0.1-graalce    # Linux
-     sdk install java 24.1.1.r23-nik    # macOS (Bellsoft Liberica NIK avoids AWT issues)
-     ```
-   * If you already have GraalVM, set `GRAALVM_HOME` to its installation root before building.
-   * Confirm the active JVM by running `java -version`; it should report `GraalVM`.
-
-2. **Tesseract OCR and language packs (optional but required for OCR PDFs)**
-   * Debian/Ubuntu: `sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-ara`
-   * macOS: `brew install tesseract tesseract-lang`
-
-3. **Other build prerequisites**
-   * The extractous build script may also require `pkg-config`, `cmake`, or other native toolchain utilities depending on your platform.
-   * If you hit `system-configuration` / `reqwest` panics such as `Attempted to create a NULL object`, ensure your macOS SDK/frameworks are intact for CoreFoundation and run the build again after setting `GRAALVM_HOME`.
-
-Once the native prerequisites are installed, rerun `cargo clean && cargo test file_extract`; the initial build can take two-to-three minutes while the Tika native libs compile.
-
-## DuckDB Setup
-
-This project uses DuckDB for data persistence. You have three options:
-
-### Option 1: Bundled DuckDB (Recommended for Development)
-
-Build and test with the bundled feature, which includes DuckDB:
-
-```bash
-cargo build --features bundled
-cargo test --features bundled
-```
-
-### Option 2: System DuckDB (macOS)
-
-Run the setup script to download and configure DuckDB locally:
-
-```bash
-./setup_duckdb.sh
-source duckdb_env.sh
-cargo build
-cargo test
-```
-
-To persist the environment variables, add to your shell profile:
-
-```bash
-echo 'source /path/to/spec-ai/duckdb_env.sh' >> ~/.zshrc
-```
-
-### Option 3: Homebrew (macOS)
-
-```bash
-brew install duckdb
-cargo build
-cargo test
-```
-
 ## Container Usage
 
 The project includes a Containerfile for running spec-ai in a containerized environment:
-
-```bash
-# Build the container image
-podman build -t spec-ai .
-# or with Docker
-docker build -t spec-ai .
-
-# Run the container
-podman run --rm spec-ai --help
-
-# Run with a config file mounted
-podman run --rm -v ./spec-ai.config.toml:/home/specai/spec-ai.config.toml:ro spec-ai
-
-# Interactive mode
-podman run --rm -it spec-ai bash
-```
 
 The container image includes all required dependencies (GraalVM, Tesseract, DuckDB) and uses the bundled DuckDB feature.
 
 ### Installation
 
 ```bash
-cargo build --release
+cargo install spec-ai --features bundled
+# OR
+cargo binstall spec-ai --features bundled
 ```
 
 ### Configuration
@@ -125,31 +86,17 @@ Configuration is loaded in the following order (highest precedence first):
 5. **Environment Variable** - `CONFIG_PATH` environment variable
 6. **Embedded Default** - A default configuration is embedded in the binary and created if no config file exists
 
-### Available Environment Variables
-
-- `AGENT_DB_PATH` - Database file path
-- `AGENT_MODEL_PROVIDER` - Model provider (mock, openai, anthropic, ollama, mlx, lmstudio)
-- `AGENT_MODEL_NAME` - Specific model name
-- `AGENT_MODEL_TEMPERATURE` - Generation temperature (0.0-2.0)
-- `AGENT_API_KEY_SOURCE` - API key source
-- `AGENT_LOG_LEVEL` - Logging level (trace, debug, info, warn, error)
-- `AGENT_UI_THEME` - UI theme
-- `AGENT_DEFAULT_AGENT` - Default agent profile to use
-
 ### Running
 
 ```bash
-# Run with default configuration
-cargo run
+# Start a chat session
+spec-ai
 
-# Run with custom config file
-cargo run -- --config /path/to/config.toml
-
-# Short form
-cargo run -- -c custom.toml
+# Start a chat session using the configuration in the specified file
+spec-ai --config /path/to/config.toml
 
 # Show help
-cargo run -- --help
+spec-ai --help
 ```
 
 **Command-Line Options:**
@@ -208,42 +155,6 @@ spec-ai run spec1.spec spec2.spec # run multiple spec files
 
 The default `specs/smoke.spec` is purposely simple and works against the mock provider so you can verify the CLI still functions after code changes.
 
-## Documentation
-
-For detailed documentation, see:
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - System architecture and component overview
-- [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) - Complete configuration guide
-- [`docs/SETUP.md`](docs/SETUP.md) - Detailed setup instructions
-- [`docs/SELF-INIT.md`](docs/SELF-INIT.md) - Bootstrap self-discovery process
-- [`docs/VERIFY.md`](docs/VERIFY.md) - Testing and verification guide
-
-Example configurations are available in `examples/configs/`:
-- `config.openai.example.toml` - OpenAI provider setup
-- `config.lmstudio.toml` - Local LM Studio configuration
-- `config.multi_model.example.toml` - Multi-model reasoning setup
-- `config.graph.example.toml` - Knowledge graph configuration
-
-Example code demonstrating various features can be found in `examples/code/`.
-
-## Architecture
-
-### Module Structure
-
-```
-src/
-├── config/          # Configuration system
-│   ├── mod.rs       # Core config loading and validation
-│   ├── agent.rs     # Agent profile definitions
-│   ├── registry.rs  # Agent registry and switching
-│   └── cache.rs     # Configuration caching
-├── persistence/     # Database layer
-│   ├── mod.rs       # Persistence API
-│   └── migrations.rs # Database migrations
-├── types.rs         # Shared types
-├── lib.rs           # Library exports
-└── main.rs          # CLI entry point
-```
-
 ### Agent Profiles
 
 Define multiple agents with different personalities and capabilities:
@@ -264,46 +175,6 @@ memory_k = 20
 
 `prompt_user` is implicitly allowed (unless you add it to `denied_tools`) so agents can always escalate to a human for clarification.
 
-### Key APIs
-
-#### Configuration
-```rust
-use spec_ai::config::{AppConfig, AgentRegistry, ConfigCache};
-use spec_ai::persistence::Persistence;
-
-// Load configuration
-let config = AppConfig::load()?;
-
-// Create agent registry
-let persistence = Persistence::new(&config.database.path)?;
-let registry = AgentRegistry::new(config.agents.clone(), persistence.clone());
-registry.init()?;
-
-// Switch agents
-registry.set_active("coder")?;
-let (name, profile) = registry.active()?.unwrap();
-
-// Cache configuration
-let cache = ConfigCache::new(persistence);
-cache.store_effective_config(&config)?;
-```
-
-#### Persistence
-```rust
-use spec_ai::persistence::Persistence;
-
-let persistence = Persistence::new_default()?;
-
-// Store and retrieve messages
-let id = persistence.insert_message("session1", MessageRole::User, "Hello")?;
-let messages = persistence.list_messages("session1", 10)?;
-
-// Memory vectors
-let embedding = vec![0.1, 0.2, 0.3];
-persistence.insert_memory_vector("session1", Some(id), &embedding)?;
-let similar = persistence.recall_top_k("session1", &embedding, 5)?;
-```
-
 ## Testing
 
 Run all tests:
@@ -321,22 +192,6 @@ Run specific test suites:
 cargo test --lib plugin
 cargo test --lib policy
 cargo test --test policy_integration_tests
-```
-
-## API Server Usage
-
-The API server is available as an optional feature. To use it:
-
-```bash
-# Build with API support
-cargo build --features api
-
-# Example API usage
-curl http://localhost:3000/health
-curl http://localhost:3000/agents
-curl -X POST http://localhost:3000/query \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Hello!", "agent": "coder"}'
 ```
 
 ## Development
@@ -359,7 +214,7 @@ curl -X POST http://localhost:3000/query \
 
 MIT License
 
-Copyright (c) 2024 spec-ai Contributors
+Copyright (c) 2025 spec-ai Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -380,4 +235,4 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ## Contributing
-Open a PR
+Create an issue. Open a PR.
