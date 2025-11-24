@@ -5783,7 +5783,6 @@ dependencies = [
  "serde",
  "serde_json",
  "spec-ai-config",
- "spec-ai-core",
  "tokio",
  "tracing",
 ]

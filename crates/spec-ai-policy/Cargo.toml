@@ -15,5 +15,5 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 spec-ai-config = { path = "../spec-ai-config", version = "0.4.8" }
 
-[dev-dependencies]
-spec-ai-core = { path = "../spec-ai-core", version = "0.4.8" }
+# [dev-dependencies]
+# spec-ai-core = { path = "../spec-ai-core", version = "0.4.8" }
