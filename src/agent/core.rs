@@ -2665,7 +2665,7 @@ mod tests {
             },
         ];
 
-        let prompt = agent.build_prompt("Current question", &context).unwrap();
+        let prompt = agent.build_prompt("Current question", &context).await.unwrap();
 
         assert!(prompt.contains("You are a helpful assistant"));
         assert!(prompt.contains("Previous conversation"));
@@ -2817,8 +2817,8 @@ mod tests {
             policy_engine.clone(),
         );
 
-        assert!(agent.is_tool_allowed("echo"));
-        assert!(!agent.is_tool_allowed("calculator"));
+        assert!(agent.is_tool_allowed("echo").await);
+        assert!(!agent.is_tool_allowed("calculator").await);
 
         // Test with denied list
         profile.allowed_tools = None;
@@ -2835,8 +2835,8 @@ mod tests {
             policy_engine,
         );
 
-        assert!(agent.is_tool_allowed("echo"));
-        assert!(!agent.is_tool_allowed("calculator"));
+        assert!(agent.is_tool_allowed("echo").await);
+        assert!(!agent.is_tool_allowed("calculator").await);
     }
 
     #[tokio::test]

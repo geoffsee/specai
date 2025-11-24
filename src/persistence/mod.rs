@@ -342,15 +342,15 @@ impl Persistence {
     ) -> Result<i64> {
         use crate::sync::VectorClock;
 
-        let conn = self.conn();
+        // Check if sync is enabled BEFORE locking the connection to avoid deadlock
+        let sync_enabled = self.graph_get_sync_enabled(session_id, "default").unwrap_or(false);
 
         // Create initial vector clock for this node
         let mut vector_clock = VectorClock::new();
         vector_clock.increment(&self.instance_id);
         let vc_json = vector_clock.to_json()?;
 
-        // Check if sync is enabled for this graph (default graph name for now)
-        let sync_enabled = self.graph_get_sync_enabled(session_id, "default").unwrap_or(false);
+        let conn = self.conn();
 
         // Insert the node with sync metadata
         let mut stmt = conn.prepare(
@@ -598,15 +598,15 @@ impl Persistence {
     ) -> Result<i64> {
         use crate::sync::VectorClock;
 
-        let conn = self.conn();
+        // Check if sync is enabled BEFORE locking the connection to avoid deadlock
+        let sync_enabled = self.graph_get_sync_enabled(session_id, "default").unwrap_or(false);
 
         // Create initial vector clock for this edge
         let mut vector_clock = VectorClock::new();
         vector_clock.increment(&self.instance_id);
         let vc_json = vector_clock.to_json()?;
 
-        // Check if sync is enabled for this graph (default graph name for now)
-        let sync_enabled = self.graph_get_sync_enabled(session_id, "default").unwrap_or(false);
+        let conn = self.conn();
 
         // Insert the edge with sync metadata
         let mut stmt = conn.prepare(

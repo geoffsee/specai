@@ -41,7 +41,7 @@ impl VectorClock {
 
     /// Serialize to JSON string for storage
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string(&self.versions).context("serializing vector clock")
+        serde_json::to_string(&self).context("serializing vector clock")
     }
 
     /// Get the version for a specific instance (0 if not present)
@@ -94,10 +94,10 @@ impl VectorClock {
             let other_version = other.get(instance_id);
 
             if self_version > other_version {
-                other_less_or_equal = false;
+                self_less_or_equal = false;
             }
             if other_version > self_version {
-                self_less_or_equal = false;
+                other_less_or_equal = false;
             }
         }
 

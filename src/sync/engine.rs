@@ -1,6 +1,6 @@
 use crate::api::sync::{GraphSyncPayload, SyncType, SyncedEdge, SyncedNode, Tombstone};
 use crate::persistence::{ChangelogEntry, Persistence, SyncedEdgeRecord, SyncedNodeRecord};
-use crate::sync::resolver::ConflictResolver;
+use crate::sync::resolver::{ConflictResolver, ConflictResolution};
 use crate::sync::VectorClock;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -270,13 +270,47 @@ impl SyncEngine {
                 }
                 Err(e) if e.to_string().contains("conflict") => {
                     stats.conflicts_detected += 1;
+                    // Get existing node for conflict resolution
+                    let existing_node = self.persistence
+                        .graph_get_node_with_sync(node.id)?
+                        .map(|n| self.node_record_to_synced(n));
+
                     // Try to resolve conflict
-                    if let Ok(resolved) =
-                        self.resolver.resolve_node_conflict(node, &mut our_vector_clock)
-                    {
-                        if resolved {
+                    match self.resolver.resolve_node_conflict(
+                        node,
+                        existing_node.as_ref(),
+                        &mut our_vector_clock,
+                    ) {
+                        Ok(ConflictResolution::AcceptRemote) => {
+                            // Apply the remote version
+                            self.update_node_from_synced(node)?;
                             stats.conflicts_resolved += 1;
                             stats.nodes_applied += 1;
+                        }
+                        Ok(ConflictResolution::KeepLocal) => {
+                            // Keep our version, no action needed
+                            stats.conflicts_resolved += 1;
+                        }
+                        Ok(ConflictResolution::Merged(merged_value)) => {
+                            // Apply the merged version
+                            if let Ok(merged_node) = serde_json::from_value::<SyncedNode>(merged_value) {
+                                self.update_node_from_synced(&merged_node)?;
+                                stats.conflicts_resolved += 1;
+                                stats.nodes_applied += 1;
+                            }
+                        }
+                        Ok(ConflictResolution::RequiresManualReview) => {
+                            tracing::warn!(
+                                "Node {} conflict requires manual review",
+                                node.id
+                            );
+                            // Don't count as resolved
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to resolve conflict for node {}: {}",
+                                node.id, e
+                            );
                         }
                     }
                 }
@@ -296,12 +330,47 @@ impl SyncEngine {
                 }
                 Err(e) if e.to_string().contains("conflict") => {
                     stats.conflicts_detected += 1;
-                    if let Ok(resolved) =
-                        self.resolver.resolve_edge_conflict(edge, &mut our_vector_clock)
-                    {
-                        if resolved {
+                    // Get existing edge for conflict resolution
+                    let existing_edge = self.persistence
+                        .graph_get_edge_with_sync(edge.id)?
+                        .map(|e| self.edge_record_to_synced(e));
+
+                    // Try to resolve conflict
+                    match self.resolver.resolve_edge_conflict(
+                        edge,
+                        existing_edge.as_ref(),
+                        &mut our_vector_clock,
+                    ) {
+                        Ok(ConflictResolution::AcceptRemote) => {
+                            // Apply the remote version
+                            self.update_edge_from_synced(edge)?;
                             stats.conflicts_resolved += 1;
                             stats.edges_applied += 1;
+                        }
+                        Ok(ConflictResolution::KeepLocal) => {
+                            // Keep our version, no action needed
+                            stats.conflicts_resolved += 1;
+                        }
+                        Ok(ConflictResolution::Merged(merged_value)) => {
+                            // Apply the merged version
+                            if let Ok(merged_edge) = serde_json::from_value::<SyncedEdge>(merged_value) {
+                                self.update_edge_from_synced(&merged_edge)?;
+                                stats.conflicts_resolved += 1;
+                                stats.edges_applied += 1;
+                            }
+                        }
+                        Ok(ConflictResolution::RequiresManualReview) => {
+                            tracing::warn!(
+                                "Edge {} conflict requires manual review",
+                                edge.id
+                            );
+                            // Don't count as resolved
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to resolve conflict for edge {}: {}",
+                                edge.id, e
+                            );
                         }
                     }
                 }
