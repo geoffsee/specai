@@ -8,39 +8,53 @@ on:
   pull_request:
 
 jobs:
-  build:
-    name: build-and-test
+  # Fast unit tests - runs on all PRs and pushes
+  test:
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-#
-      - uses: actions/cache@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and run tests in container
+        uses: docker/build-push-action@v5
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-            /opt/duckdb/
-          key: ${{ runner.os }}-cargo-${{ github.ref_name }}
-#
-      - name: Setup Rust
-        run: rustup update stable && rustup default stable
+          context: .
+          file: ./vm/Test.Containerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+          tags: spec-ai-test:latest
 
-      - name: Install system dependencies
-        run: |
-          apt-get update && \
-          apt-get update && apt-get install -y \
-          pkg-config \
-          cmake \
-          libssl-dev \
-          curl \
-          wget \
-          unzip \
-          libasound2-dev \
-          && rm -rf /var/lib/apt/lists/*
+      - name: Run tests
+        run: docker run --rm spec-ai-test:latest
 
-      - name: Tests
-        run: cargo test
+  # Slow integration tests - only runs on main branch
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and run integration tests in container
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./vm/Test.Containerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+          tags: spec-ai-test:latest
+
+      - name: Run integration tests
+        run: docker run --rm spec-ai-test:latest test --features integration-tests

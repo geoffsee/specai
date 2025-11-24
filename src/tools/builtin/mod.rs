@@ -14,6 +14,9 @@ pub mod web_search;
 #[cfg(feature = "web-scraping")]
 pub mod web_scraper;
 
+#[cfg(feature = "api")]
+pub mod mesh_communication;
+
 pub use audio_transcription::AudioTranscriptionTool;
 pub use bash::BashTool;
 pub use calculator::MathTool;
@@ -29,3 +32,6 @@ pub use web_search::WebSearchTool;
 
 #[cfg(feature = "web-scraping")]
 pub use web_scraper::WebScraperTool;
+
+#[cfg(feature = "api")]
+pub use mesh_communication::{GetMessagesTool, QueryMeshTool, SendMessageTool};

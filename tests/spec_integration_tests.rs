@@ -9,7 +9,7 @@ use tempfile::TempDir;
 /// 3. Runs the spec using the built binary
 /// 4. Makes assertions about the output
 #[tokio::test]
-#[ignore]
+#[cfg_attr(not(feature = "integration-tests"), ignore = "Slow end-to-end binary test - run with --features integration-tests")]
 async fn test_full_binary_spec_execution() {
     // Step 1: Build the binary
     println!("Building the binary...");
@@ -147,7 +147,7 @@ deliverables = [
 
 /// Test building the binary without execution
 #[test]
-#[ignore]
+#[cfg_attr(not(feature = "integration-tests"), ignore = "Slow binary build test - run with --features integration-tests")]
 fn test_binary_builds_successfully() {
     let build_result = Command::new("cargo")
         .args(&["build", "--release"])

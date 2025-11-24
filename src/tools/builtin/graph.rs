@@ -25,10 +25,11 @@ impl Tool for GraphTool {
     }
 
     fn description(&self) -> &str {
-        "Create, query, and traverse knowledge graphs. Supports operations: \
+        "Create, query, traverse, and synchronize knowledge graphs. Supports operations: \
          create_node, create_edge, delete_node, delete_edge, get_node, get_edge, \
          list_nodes, list_edges, find_path, traverse_neighbors, update_node, \
-         node_degree, list_hubs"
+         node_degree, list_hubs, enable_sync, disable_sync, sync_status, force_sync, \
+         list_sync_configs"
     }
 
     fn parameters(&self) -> Value {
@@ -41,7 +42,9 @@ impl Tool for GraphTool {
                         "create_node", "create_edge", "delete_node", "delete_edge",
                         "get_node", "get_edge", "list_nodes", "list_edges",
                         "find_path", "traverse_neighbors", "update_node",
-                        "node_degree", "list_hubs"
+                        "node_degree", "list_hubs",
+                        "enable_sync", "disable_sync", "sync_status", "force_sync",
+                        "list_sync_configs"
                     ],
                     "description": "The graph operation to perform"
                 },
@@ -131,6 +134,19 @@ impl Tool for GraphTool {
                     "default": 1,
                     "minimum": 0,
                     "description": "Minimum degree threshold when listing hubs"
+                },
+                "graph_name": {
+                    "type": "string",
+                    "default": "default",
+                    "description": "Graph name for sync operations"
+                },
+                "peer_instance_id": {
+                    "type": "string",
+                    "description": "Peer instance ID to sync with (for force_sync)"
+                },
+                "sync_enabled": {
+                    "type": "boolean",
+                    "description": "Enable or disable sync (for enable_sync/disable_sync)"
                 }
             },
             "required": ["operation", "session_id"]
@@ -575,6 +591,148 @@ impl Tool for GraphTool {
                         "min_degree": min_degree,
                         "count": hubs_json.len(),
                         "hubs": hubs_json
+                    })
+                    .to_string(),
+                ))
+            }
+
+            "enable_sync" => {
+                let graph_name = args["graph_name"]
+                    .as_str()
+                    .unwrap_or("default");
+                let graph_name = graph_name.to_string();
+                let graph_name_display = graph_name.clone();
+                let session_id = session_id.to_string();
+
+                tokio::task::spawn_blocking(move || {
+                    persistence.graph_set_sync_enabled(&session_id, &graph_name, true)
+                })
+                .await
+                .context("task join error")??;
+
+                Ok(ToolResult::success(
+                    json!({
+                        "message": format!("Sync enabled for graph '{}'", graph_name_display),
+                        "graph_name": graph_name_display,
+                        "sync_enabled": true
+                    })
+                    .to_string(),
+                ))
+            }
+
+            "disable_sync" => {
+                let graph_name = args["graph_name"]
+                    .as_str()
+                    .unwrap_or("default");
+                let graph_name = graph_name.to_string();
+                let graph_name_display = graph_name.clone();
+                let session_id = session_id.to_string();
+
+                tokio::task::spawn_blocking(move || {
+                    persistence.graph_set_sync_enabled(&session_id, &graph_name, false)
+                })
+                .await
+                .context("task join error")??;
+
+                Ok(ToolResult::success(
+                    json!({
+                        "message": format!("Sync disabled for graph '{}'", graph_name_display),
+                        "graph_name": graph_name_display,
+                        "sync_enabled": false
+                    })
+                    .to_string(),
+                ))
+            }
+
+            "sync_status" => {
+                let graph_name = args["graph_name"]
+                    .as_str()
+                    .unwrap_or("default");
+                let graph_name = graph_name.to_string();
+                let graph_name_display = graph_name.clone();
+                let session_id = session_id.to_string();
+                let instance_id = persistence.instance_id().to_string();
+
+                let result = tokio::task::spawn_blocking(move || {
+                    let sync_enabled = persistence.graph_get_sync_enabled(&session_id, &graph_name)?;
+                    let vector_clock = persistence.graph_sync_state_get(&instance_id, &session_id, &graph_name)?;
+
+                    // Count recent changes
+                    let since = chrono::Utc::now()
+                        .checked_sub_signed(chrono::Duration::hours(1))
+                        .unwrap()
+                        .to_rfc3339();
+                    let changes = persistence.graph_changelog_get_since(&session_id, &since)?;
+
+                    Ok::<_, anyhow::Error>((sync_enabled, vector_clock, changes.len()))
+                })
+                .await
+                .context("task join error")??;
+
+                Ok(ToolResult::success(
+                    json!({
+                        "graph_name": graph_name_display,
+                        "sync_enabled": result.0,
+                        "vector_clock": result.1.unwrap_or_else(|| "{}".to_string()),
+                        "pending_changes": result.2,
+                    })
+                    .to_string(),
+                ))
+            }
+
+            "force_sync" => {
+                let graph_name = args["graph_name"]
+                    .as_str()
+                    .unwrap_or("default");
+                let peer_instance_id = args["peer_instance_id"]
+                    .as_str()
+                    .context("peer_instance_id is required for force_sync")?;
+
+                let graph_name = graph_name.to_string();
+                let graph_name_display = graph_name.clone();
+                let session_id = session_id.to_string();
+                let peer_instance_id = peer_instance_id.to_string();
+                let peer_display = peer_instance_id.clone();
+                let instance_id = persistence.instance_id().to_string();
+
+                // Create sync engine and trigger sync
+                let sync_engine = crate::sync::SyncEngine::new((*persistence).clone(), instance_id);
+
+                let result = sync_engine.sync_full(&session_id, &graph_name).await?;
+
+                Ok(ToolResult::success(
+                    json!({
+                        "message": format!("Sync initiated with peer {}", peer_display),
+                        "graph_name": graph_name_display,
+                        "nodes_synced": result.nodes.len(),
+                        "edges_synced": result.edges.len(),
+                    })
+                    .to_string(),
+                ))
+            }
+
+            "list_sync_configs" => {
+                let session_id = session_id.to_string();
+
+                let result = tokio::task::spawn_blocking(move || {
+                    let graphs = persistence.graph_list(&session_id)?;
+                    let mut configs = Vec::new();
+                    for graph_name in graphs {
+                        let sync_enabled = persistence.graph_get_sync_enabled(&session_id, &graph_name)?;
+                        configs.push(json!({
+                            "graph_name": graph_name,
+                            "sync_enabled": sync_enabled,
+                        }));
+                    }
+                    Ok::<_, anyhow::Error>((session_id.clone(), configs))
+                })
+                .await
+                .context("task join error")??;
+
+                Ok(ToolResult::success(
+                    json!({
+                        "session_id": result.0,
+                        "graphs": result.1,
                     })
                     .to_string(),
                 ))

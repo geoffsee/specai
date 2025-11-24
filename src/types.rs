@@ -2,27 +2,35 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageRole {
     System,
     User,
     Assistant,
+    Agent(String), // Agent with instance_id
 }
 
 impl MessageRole {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> String {
         match self {
-            MessageRole::System => "system",
-            MessageRole::User => "user",
-            MessageRole::Assistant => "assistant",
+            MessageRole::System => "system".to_string(),
+            MessageRole::User => "user".to_string(),
+            MessageRole::Assistant => "assistant".to_string(),
+            MessageRole::Agent(id) => format!("agent:{}", id),
         }
     }
 
     pub fn from_str(s: &str) -> Self {
-        match s.to_ascii_lowercase().as_str() {
-            "system" => MessageRole::System,
-            "assistant" => MessageRole::Assistant,
-            _ => MessageRole::User,
+        let lower = s.to_ascii_lowercase();
+        if lower.starts_with("agent:") {
+            let id = s[6..].to_string();
+            MessageRole::Agent(id)
+        } else {
+            match lower.as_str() {
+                "system" => MessageRole::System,
+                "assistant" => MessageRole::Assistant,
+                _ => MessageRole::User,
+            }
         }
     }
 }

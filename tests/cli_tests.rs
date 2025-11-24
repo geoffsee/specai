@@ -89,6 +89,7 @@ async fn test_full_cli_workflow() {
             level: "info".into(),
         },
         audio: AudioConfig::default(),
+        mesh: spec_ai::config::MeshConfig::default(),
         agents,
         default_agent: Some("coder".into()),
     };
@@ -216,6 +217,7 @@ deliverables = [
             level: "info".into(),
         },
         audio: AudioConfig::default(),
+        mesh: spec_ai::config::MeshConfig::default(),
         agents,
         default_agent: Some("default".into()),
     };
@@ -267,6 +269,7 @@ async fn test_session_isolation() {
             level: "info".into(),
         },
         audio: AudioConfig::default(),
+        mesh: spec_ai::config::MeshConfig::default(),
         agents,
         default_agent: Some("test".into()),
     };
@@ -328,6 +331,7 @@ async fn test_init_command_gating() {
             level: "info".into(),
         },
         audio: AudioConfig::default(),
+        mesh: spec_ai::config::MeshConfig::default(),
         agents,
         default_agent: Some("default".into()),
     };
@@ -380,6 +384,7 @@ async fn test_agent_switching_preserves_session() {
             level: "info".into(),
         },
         audio: AudioConfig::default(),
+        mesh: spec_ai::config::MeshConfig::default(),
         agents,
         default_agent: Some("agent1".into()),
     };
@@ -427,6 +432,7 @@ async fn test_config_reload() {
             level: "info".into(),
         },
         audio: AudioConfig::default(),
+        mesh: spec_ai::config::MeshConfig::default(),
         agents,
         default_agent: Some("test".into()),
     };
@@ -481,6 +487,7 @@ async fn test_empty_commands() {
             level: "info".into(),
         },
         audio: AudioConfig::default(),
+        mesh: spec_ai::config::MeshConfig::default(),
         agents,
         default_agent: Some("test".into()),
     };
@@ -523,6 +530,7 @@ async fn test_list_agents_empty() {
             level: "info".into(),
         },
         audio: AudioConfig::default(),
+        mesh: spec_ai::config::MeshConfig::default(),
         agents: HashMap::new(),
         default_agent: None,
     };

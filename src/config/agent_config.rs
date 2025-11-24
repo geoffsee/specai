@@ -34,6 +34,9 @@ pub struct AppConfig {
     /// Audio transcription configuration
     #[serde(default)]
     pub audio: AudioConfig,
+    /// Mesh networking configuration
+    #[serde(default)]
+    pub mesh: MeshConfig,
     /// Available agent profiles
     #[serde(default)]
     pub agents: HashMap<String, AgentProfile>,
@@ -314,6 +317,58 @@ impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
             level: "info".to_string(),
+        }
+    }
+}
+
+/// Mesh networking configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeshConfig {
+    /// Enable mesh networking
+    #[serde(default)]
+    pub enabled: bool,
+    /// Registry port for mesh coordination
+    #[serde(default = "default_registry_port")]
+    pub registry_port: u16,
+    /// Heartbeat interval in seconds
+    #[serde(default = "default_heartbeat_interval")]
+    pub heartbeat_interval_secs: u64,
+    /// Leader timeout in seconds (how long before new election)
+    #[serde(default = "default_leader_timeout")]
+    pub leader_timeout_secs: u64,
+    /// Replication factor for knowledge graph
+    #[serde(default = "default_replication_factor")]
+    pub replication_factor: usize,
+    /// Auto-join mesh on startup
+    #[serde(default)]
+    pub auto_join: bool,
+}
+
+fn default_registry_port() -> u16 {
+    3000
+}
+
+fn default_heartbeat_interval() -> u64 {
+    5
+}
+
+fn default_leader_timeout() -> u64 {
+    15
+}
+
+fn default_replication_factor() -> usize {
+    2
+}
+
+impl Default for MeshConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            registry_port: default_registry_port(),
+            heartbeat_interval_secs: default_heartbeat_interval(),
+            leader_timeout_secs: default_leader_timeout(),
+            replication_factor: default_replication_factor(),
+            auto_join: true,
         }
     }
 }

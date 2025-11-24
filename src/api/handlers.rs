@@ -1,6 +1,7 @@
 /// API request handlers
 use crate::agent::builder::AgentBuilder;
 use crate::agent::core::AgentCore;
+use crate::api::mesh::{MeshRegistry, MeshState};
 use crate::api::models::*;
 use crate::config::{AgentRegistry, AppConfig};
 use crate::persistence::Persistence;
@@ -29,6 +30,7 @@ pub struct AppState {
     pub tool_registry: Arc<ToolRegistry>,
     pub config: AppConfig,
     pub start_time: Instant,
+    pub mesh_registry: MeshRegistry,
 }
 
 impl AppState {
@@ -39,12 +41,19 @@ impl AppState {
         config: AppConfig,
     ) -> Self {
         Self {
-            persistence,
+            persistence: persistence.clone(),
             agent_registry,
             tool_registry,
             config,
             start_time: Instant::now(),
+            mesh_registry: MeshRegistry::with_persistence(persistence),
         }
+    }
+}
+
+impl MeshState for AppState {
+    fn mesh_registry(&self) -> &MeshRegistry {
+        &self.mesh_registry
     }
 }
 

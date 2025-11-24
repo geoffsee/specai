@@ -13,3 +13,6 @@ pub mod types;
 
 #[cfg(feature = "api")]
 pub mod api;
+
+#[cfg(feature = "api")]
+pub mod sync;

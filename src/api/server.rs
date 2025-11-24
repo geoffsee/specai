@@ -1,11 +1,19 @@
 /// HTTP server implementation
 use crate::api::handlers::{health_check, list_agents, query, stream_query, AppState};
+use crate::api::mesh::{
+    acknowledge_messages, deregister_instance, get_messages, heartbeat, list_instances,
+    register_instance, send_message,
+};
+use crate::api::sync_handlers::{
+    bulk_toggle_sync, configure_sync, get_sync_status, handle_sync_apply, handle_sync_request,
+    list_conflicts, list_sync_configs, toggle_sync,
+};
 use crate::config::{AgentRegistry, AppConfig};
 use crate::persistence::Persistence;
 use crate::tools::ToolRegistry;
 use anyhow::Result;
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use std::sync::Arc;
@@ -86,6 +94,11 @@ impl ApiServer {
         Self { config, state }
     }
 
+    /// Get the mesh registry for self-registration
+    pub fn mesh_registry(&self) -> &crate::api::mesh::MeshRegistry {
+        &self.state.mesh_registry
+    }
+
     /// Build the router with all routes
     fn build_router(&self) -> Router {
         let mut router = Router::new()
@@ -95,6 +108,24 @@ impl ApiServer {
             // Query endpoints
             .route("/query", post(query))
             .route("/stream", post(stream_query))
+            // Mesh registry endpoints
+            .route("/registry/register", post(register_instance::<AppState>))
+            .route("/registry/agents", get(list_instances::<AppState>))
+            .route("/registry/heartbeat/:instance_id", post(heartbeat::<AppState>))
+            .route("/registry/deregister/:instance_id", delete(deregister_instance::<AppState>))
+            // Message routing endpoints
+            .route("/messages/send/:source_instance", post(send_message::<AppState>))
+            .route("/messages/:instance_id", get(get_messages::<AppState>))
+            .route("/messages/ack/:instance_id", post(acknowledge_messages::<AppState>))
+            // Graph sync endpoints
+            .route("/sync/request", post(handle_sync_request))
+            .route("/sync/apply", post(handle_sync_apply))
+            .route("/sync/status/:session_id/:graph_name", get(get_sync_status))
+            .route("/sync/enable/:session_id/:graph_name", post(toggle_sync))
+            .route("/sync/configs/:session_id", get(list_sync_configs))
+            .route("/sync/bulk/:session_id", post(bulk_toggle_sync))
+            .route("/sync/configure/:session_id/:graph_name", post(configure_sync))
+            .route("/sync/conflicts", get(list_conflicts))
             // Add state
             .with_state(self.state.clone());
 

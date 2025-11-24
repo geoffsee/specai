@@ -17,10 +17,11 @@ use crate::types::{EdgeType, Message, MessageRole, NodeType, TraversalDirection}
 use anyhow::{Context, Result};
 use chrono::Utc;
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 const DEFAULT_MAIN_TEMPERATURE: f32 = 0.7;
@@ -90,7 +91,7 @@ pub struct AgentCore {
     /// Policy engine for permission checks
     policy_engine: Arc<PolicyEngine>,
     /// Cache for tool permission checks to avoid repeated lookups
-    tool_permission_cache: std::cell::RefCell<std::collections::HashMap<String, bool>>,
+    tool_permission_cache: Arc<RwLock<HashMap<String, bool>>>,
 }
 
 impl AgentCore {
@@ -116,7 +117,7 @@ impl AgentCore {
             conversation_history: Vec::new(),
             tool_registry,
             policy_engine,
-            tool_permission_cache: std::cell::RefCell::new(std::collections::HashMap::new()),
+            tool_permission_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -130,7 +131,7 @@ impl AgentCore {
     pub fn with_session(mut self, session_id: String) -> Self {
         self.session_id = session_id;
         self.conversation_history.clear();
-        self.tool_permission_cache.borrow_mut().clear();
+        self.tool_permission_cache = Arc::new(RwLock::new(HashMap::new()));
         self
     }
 
@@ -148,7 +149,7 @@ impl AgentCore {
 
         // Step 2: Build prompt with context
         let prompt_timer = Instant::now();
-        let mut prompt = self.build_prompt(input, &recalled_messages)?;
+        let mut prompt = self.build_prompt(input, &recalled_messages).await?;
         self.log_timing("run_step.build_prompt", prompt_timer);
 
         // Step 3: Store user message
@@ -175,7 +176,7 @@ impl AgentCore {
                 if let Some((tool_name, tool_args)) =
                     Self::infer_goal_tool_action(goal.text.as_str())
                 {
-                    if self.is_tool_allowed(&tool_name) {
+                    if self.is_tool_allowed(&tool_name).await {
                         let tool_timer = Instant::now();
                         let tool_result = self.execute_tool(&run_id, &tool_name, &tool_args).await;
                         self.log_timing("run_step.tool_execution.auto", tool_timer);
@@ -308,7 +309,7 @@ impl AgentCore {
                         let tool_args = &tool_call.arguments;
 
                         // Check if tool is allowed
-                        if !self.is_tool_allowed(tool_name) {
+                        if !self.is_tool_allowed(tool_name).await {
                             warn!(
                                 "Tool '{}' is not allowed by agent policy - prompting user",
                                 tool_name
@@ -780,7 +781,7 @@ impl AgentCore {
                                     matches.push(MemoryRecallMatch {
                                         message_id: Some(message.id),
                                         score,
-                                        role: message.role,
+                                        role: message.role.clone(),
                                         preview: preview_text(&message.content),
                                     });
                                     semantic_context.push(message);
@@ -950,7 +951,7 @@ impl AgentCore {
     }
 
     /// Build the prompt from system prompt, context, and user input
-    fn build_prompt(&self, input: &str, context_messages: &[Message]) -> Result<String> {
+    async fn build_prompt(&self, input: &str, context_messages: &[Message]) -> Result<String> {
         let mut prompt = String::new();
 
         // Add system prompt if configured
@@ -969,9 +970,9 @@ impl AgentCore {
                 info!(
                     "Checking tool: {} - allowed: {}",
                     tool_name,
-                    self.is_tool_allowed(tool_name)
+                    self.is_tool_allowed(tool_name).await
                 );
-                if self.is_tool_allowed(tool_name) {
+                if self.is_tool_allowed(tool_name).await {
                     if let Some(tool) = self.tool_registry.get(tool_name) {
                         prompt.push_str(&format!("- {}: {}\n", tool_name, tool.description()));
                     }
@@ -1011,7 +1012,7 @@ impl AgentCore {
     ) -> Result<i64> {
         let message_id = self
             .persistence
-            .insert_message(&self.session_id, role, content)
+            .insert_message(&self.session_id, role.clone(), content)
             .context("Failed to store message")?;
 
         let mut embedding_id = None;
@@ -1891,10 +1892,10 @@ impl AgentCore {
     }
 
     /// Check if a tool is allowed by the agent profile and policy engine
-    fn is_tool_allowed(&self, tool_name: &str) -> bool {
+    async fn is_tool_allowed(&self, tool_name: &str) -> bool {
         // Check cache first to avoid repeated permission lookups
         {
-            let cache = self.tool_permission_cache.borrow();
+            let cache = self.tool_permission_cache.read().await;
             if let Some(&allowed) = cache.get(tool_name) {
                 return allowed;
             }
@@ -1908,7 +1909,8 @@ impl AgentCore {
         );
         if !profile_allowed {
             self.tool_permission_cache
-                .borrow_mut()
+                .write()
+                .await
                 .insert(tool_name.to_string(), false);
             return false;
         }
@@ -1923,7 +1925,8 @@ impl AgentCore {
 
         let allowed = matches!(decision, PolicyDecision::Allow);
         self.tool_permission_cache
-            .borrow_mut()
+            .write()
+            .await
             .insert(tool_name.to_string(), allowed);
         allowed
     }
@@ -1979,10 +1982,10 @@ impl AgentCore {
 
                 if allowed {
                     // Add to allowed tools permanently
-                    self.add_allowed_tool(tool_name);
+                    self.add_allowed_tool(tool_name).await;
                 } else {
                     // Add to denied tools to remember the decision
-                    self.add_denied_tool(tool_name);
+                    self.add_denied_tool(tool_name).await;
                 }
 
                 Ok(allowed)
@@ -1999,25 +2002,25 @@ impl AgentCore {
     }
 
     /// Add a tool to the allowed list
-    fn add_allowed_tool(&mut self, tool_name: &str) {
+    async fn add_allowed_tool(&mut self, tool_name: &str) {
         let tools = self.profile.allowed_tools.get_or_insert_with(Vec::new);
         if !tools.contains(&tool_name.to_string()) {
             tools.push(tool_name.to_string());
             info!("Added '{}' to allowed tools list", tool_name);
         }
         // Clear cache to force recheck
-        self.tool_permission_cache.borrow_mut().remove(tool_name);
+        self.tool_permission_cache.write().await.remove(tool_name);
     }
 
     /// Add a tool to the denied list
-    fn add_denied_tool(&mut self, tool_name: &str) {
+    async fn add_denied_tool(&mut self, tool_name: &str) {
         let tools = self.profile.denied_tools.get_or_insert_with(Vec::new);
         if !tools.contains(&tool_name.to_string()) {
             tools.push(tool_name.to_string());
             info!("Added '{}' to denied tools list", tool_name);
         }
         // Clear cache to force recheck
-        self.tool_permission_cache.borrow_mut().remove(tool_name);
+        self.tool_permission_cache.write().await.remove(tool_name);
     }
 
     /// Execute a tool and log the result
@@ -2662,7 +2665,7 @@ mod tests {
             },
         ];
 
-        let prompt = agent.build_prompt("Current question", &context).unwrap();
+        let prompt = agent.build_prompt("Current question", &context).await.unwrap();
 
         assert!(prompt.contains("You are a helpful assistant"));
         assert!(prompt.contains("Previous conversation"));
@@ -2814,8 +2817,8 @@ mod tests {
             policy_engine.clone(),
         );
 
-        assert!(agent.is_tool_allowed("echo"));
-        assert!(!agent.is_tool_allowed("calculator"));
+        assert!(agent.is_tool_allowed("echo").await);
+        assert!(!agent.is_tool_allowed("calculator").await);
 
         // Test with denied list
         profile.allowed_tools = None;
@@ -2832,8 +2835,8 @@ mod tests {
             policy_engine,
         );
 
-        assert!(agent.is_tool_allowed("echo"));
-        assert!(!agent.is_tool_allowed("calculator"));
+        assert!(agent.is_tool_allowed("echo").await);
+        assert!(!agent.is_tool_allowed("calculator").await);
     }
 
     #[tokio::test]

@@ -122,7 +122,7 @@ async fn test_audio_persistence() {
 }
 
 #[tokio::test]
-#[ignore = "Long running mock scenarios"]
+#[cfg_attr(not(feature = "integration-tests"), ignore = "Long running mock scenarios - run with --features integration-tests")]
 async fn test_different_scenarios() {
     let tool = AudioTranscriptionTool::new();
 
@@ -268,7 +268,7 @@ async fn test_transcription_event_formatting() {
 }
 
 #[tokio::test]
-#[ignore = "Long running timing-sensitive scenario"]
+#[cfg_attr(not(feature = "integration-tests"), ignore = "Long running timing-sensitive scenario - run with --features integration-tests")]
 async fn test_speed_multiplier() {
     let tool = AudioTranscriptionTool::new();
 

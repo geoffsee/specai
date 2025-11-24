@@ -166,6 +166,7 @@ mod tests {
                 level: "info".to_string(),
             },
             audio: AudioConfig::default(),
+            mesh: crate::config::MeshConfig::default(),
             agents: HashMap::new(),
             default_agent: None,
         }

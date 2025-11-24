@@ -3,6 +3,38 @@
 
 This document provides step-by-step instructions to verify all major features of spec-ai are working correctly.
 
+## Automated Test Suites
+
+The project includes comprehensive automated tests separated into fast unit tests and slow integration tests.
+
+### Running Tests
+
+```bash
+# Run fast unit tests only (default, ~50 seconds)
+cargo test
+
+# Run integration tests only (slow, includes binary builds)
+cargo test --features integration-tests
+
+# Run all tests (unit + integration)
+cargo test --features integration-tests
+```
+
+### Test Organization
+
+**Unit Tests** (fast, included in default `cargo test`):
+- 245+ unit tests in `src/` modules
+- Integration tests in `tests/` (audio, CLI, config, graph, persistence, etc.)
+- Complete in ~50 seconds
+
+**Integration Tests** (slow, requires `--features integration-tests`):
+- `test_different_scenarios` - Tests all 5 audio transcription scenarios
+- `test_speed_multiplier` - Timing-sensitive audio test
+- `test_binary_builds_successfully` - Compiles release binary
+- `test_full_binary_spec_execution` - Full end-to-end binary test
+
+Integration tests are automatically skipped in default `cargo test` runs to keep the development feedback loop fast.
+
 ## Prerequisites
 
 Before running verification tests:

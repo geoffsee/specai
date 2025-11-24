@@ -2745,6 +2745,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hostname"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a56f203cd1c76362b69e3863fd987520ac36cf70a8c92627449b2f64a8cf7d65"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-link 0.1.3",
+]
+
+[[package]]
 name = "hound"
 version = "3.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5694,7 +5705,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai"
-version = "0.3.5"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "async-openai",
@@ -5711,8 +5722,10 @@ dependencies = [
  "duckdb",
  "extractous",
  "futures",
+ "hostname",
  "html-escape",
  "libduckdb-sys",
+ "rand 0.8.5",
  "regex",
  "reqwest 0.12.24",
  "serde",
@@ -5730,6 +5743,7 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "vtt-rs",
  "walkdir",
 ]
@@ -7061,7 +7075,9 @@ version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2"
 dependencies = [
+ "getrandom 0.3.4",
  "js-sys",
+ "serde",
  "wasm-bindgen",
 ]
 
