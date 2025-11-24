@@ -4,139 +4,75 @@
 
 ```mermaid
 graph TB
-    subgraph "User Interface"
+    subgraph UI["User Interface"]
         CLI["CLI/REPL<br/>(src/cli)"]
         Spec["Agent Spec<br/>(TOML)"]
     end
 
-    subgraph "Configuration & Registry"
-        Config["AppConfig<br/>ModelConfig<br/>AgentProfile<br/>(src/config)"]
-        AgentReg["Agent Registry<br/>(Named Profiles)"]
-        ToolReg["Tool Registry<br/>(Available Tools)"]
-        PluginReg["Plugin Registry<br/>(Bootstrap)"]
+    subgraph Config["Configuration & Registry"]
+        ConfigCore["App/Model/Agent Config<br/>(src/config)"]
+        AgentReg["Agent Registry"]
+        ToolReg["Tool Registry"]
+        PluginReg["Plugin Registry"]
     end
 
-    subgraph "Core Execution Engine"
-        AgentCore["AgentCore<br/>Execution Loop<br/>(src/agent/core)"]
+    subgraph Core["Core Execution Engine"]
+        AgentCore["AgentCore<br/>(src/agent/core)"]
         ModelFactory["Model Factory<br/>(src/agent/factory)"]
+        Tools["Built-in Tools<br/>(file, bash, graph, audio, util)"]
     end
 
-    subgraph "Model Providers"
-        OpenAI["OpenAI"]
-        Anthropic["Anthropic<br/>Claude"]
-        LMStudio["LM Studio"]
-        MLX["MLX"]
-        Ollama["Ollama"]
+    subgraph Providers["Model Providers"]
+        ProvidersHub["OpenAI | Anthropic | LM Studio | MLX | Ollama"]
     end
 
-    subgraph "Tool System"
-        ToolTrait["Tool Trait<br/>(Interface)"]
-        subgraph "Built-in Tools"
-            FileOps["File Operations<br/>(read, write, extract)"]
-            Bash["Bash/Shell<br/>Execution"]
-            WebTools["Web Search<br/>Web Scraper"]
-            Graph["Graph Operations<br/>(Knowledge Graph)"]
-            Audio["Audio<br/>Transcription"]
-            Other["Calculator<br/>Echo<br/>Prompt"]
-        end
-    end
-
-    subgraph "Knowledge & Memory"
+    subgraph Knowledge["Knowledge & Memory"]
         Embeddings["Embeddings Service<br/>(src/embeddings)"]
-        Graph_DB["Knowledge Graph<br/>GraphNode<br/>GraphEdge<br/>(Types)"]
+        GraphDB["Knowledge Graph<br/>Nodes/Edges"]
     end
 
-    subgraph "Persistence Layer"
-        DB["DuckDB<br/>(src/persistence)"]
-        Messages["Messages Table"]
-        MemVectors["Memory Vectors<br/>Embeddings"]
+    subgraph MeshSync["Service Mesh & Sync"]
+        MeshAPI["Mesh API<br/>(registry/message bus)"]
+        MeshRegistry["MeshRegistry<br/>Leader + Peers"]
+        MessageBus["Message Bus<br/>Delegation/GraphSync"]
+        SyncAPI["Sync API<br/>(graph sync)"]
+        SyncEngine["SyncEngine<br/>(vector clocks + resolver)"]
+    end
+
+    subgraph Persistence["Persistence Layer (DuckDB)"]
+        DB["DuckDB"]
+        Messages["Messages"]
         ToolLogs["Tool Logs"]
-        GraphTables["Graph Nodes<br/>Graph Edges"]
+        GraphTables["Graph Tables"]
         PolicyCache["Policy Cache"]
     end
 
-    subgraph "Access Control"
-        Policy["Policy Engine<br/>(src/policy)<br/>Allow/Deny Rules"]
-    end
-
-    subgraph "Analysis & Discovery"
-        Bootstrap["Bootstrap Self<br/>(src/bootstrap_self)"]
-        subgraph "Plugins"
-            CargoPlugin["Cargo Plugin<br/>(Rust)"]
-            ToakPlugin["TOAK Tokenizer<br/>Plugin"]
-            UniversalPlugin["Universal Code<br/>Plugin"]
-        end
-    end
-
-    subgraph "Output"
-        AgentOutput["AgentOutput<br/>Response + Metadata"]
-    end
-
-    %% Main flows
-    CLI -->|Commands| CliState["CliState<br/>(State Manager)"]
-    Spec -->|Load| CliState
-
-    CliState -->|Initialize| AgentCore
-    CliState -->|Get Profile| AgentReg
-    AgentReg -->|Uses| Config
-
-    AgentCore -->|Select Provider| ModelFactory
-    ModelFactory -->|Create| OpenAI
-    ModelFactory -->|Create| Anthropic
-    ModelFactory -->|Create| LMStudio
-    ModelFactory -->|Create| MLX
-    ModelFactory -->|Create| Ollama
-
-    AgentCore -->|Get Tools| ToolReg
-    ToolReg -->|Contains| ToolTrait
-    ToolTrait -->|Implemented by| FileOps
-    ToolTrait -->|Implemented by| Bash
-    ToolTrait -->|Implemented by| WebTools
-    ToolTrait -->|Implemented by| Graph
-    ToolTrait -->|Implemented by| Audio
-    ToolTrait -->|Implemented by| Other
-
-    AgentCore -->|Retrieve Memory| Embeddings
-    Embeddings -->|Query| MemVectors
-    Embeddings -->|Query| Graph_DB
-
-    AgentCore -->|Check Permission| Policy
-    Policy -->|Query| PolicyCache
-
-    AgentCore -->|Load/Save| DB
-    DB -->|Store| Messages
-    DB -->|Store| MemVectors
-    DB -->|Store| ToolLogs
-    DB -->|Store| GraphTables
-    DB -->|Store| PolicyCache
-
-    AgentCore -->|Execute| FileOps
-    AgentCore -->|Execute| Bash
-    AgentCore -->|Execute| WebTools
-    AgentCore -->|Execute| Graph
-    AgentCore -->|Execute| Audio
-    AgentCore -->|Execute| Other
-
-    FileOps -->|Results| ToolLogs
-    Bash -->|Results| ToolLogs
-    WebTools -->|Results| ToolLogs
-    Graph -->|Results| ToolLogs
-    Audio -->|Results| ToolLogs
-    Other -->|Results| ToolLogs
-
-    Bootstrap -->|Use| PluginReg
-    PluginReg -->|Load| CargoPlugin
-    PluginReg -->|Load| ToakPlugin
-    PluginReg -->|Load| UniversalPlugin
-    Bootstrap -->|Create Nodes/Edges| GraphTables
-
-    AgentCore -->|Produces| AgentOutput
+    CLI --> AgentCore
+    Spec --> ConfigCore
+    ConfigCore --> AgentReg
+    AgentReg --> AgentCore
+    ToolReg --> AgentCore
+    PluginReg --> AgentCore
+    AgentCore --> ModelFactory --> ProvidersHub
+    AgentCore --> Tools --> ToolLogs
+    AgentCore --> Embeddings
+    Embeddings --> GraphDB
+    AgentCore --> MeshAPI
+    MeshAPI --> MeshRegistry
+    MeshRegistry --> MessageBus
+    MessageBus --> AgentCore
+    AgentCore --> SyncAPI --> SyncEngine
+    SyncEngine --> GraphTables
+    SyncEngine --> DB
+    AgentCore --> DB
+    DB --> Messages
+    DB --> PolicyCache
 
     style AgentCore fill:#ff6b6b
-    style DB fill:#4ecdc4
-    style Policy fill:#ffe66d
-    style Embeddings fill:#95e1d3
-    style Bootstrap fill:#c7ceea
+    style DB fill:#2a8b9d
+    style Embeddings fill:#2a8b9d
+    style MeshAPI fill:#2a8b9d
+    style SyncAPI fill:#2a8b9d
 ```
 
 ## Key Components
@@ -177,6 +113,11 @@ Multi-provider support:
 ### Knowledge & Memory
 - **Embeddings Service**: Vector generation for semantic search
 - **Knowledge Graph**: GraphNodes and GraphEdges for relationship tracking
+
+### Distributed Coordination & Sync
+- **Mesh Registry & Messaging**: Agents register, exchange heartbeats, and route inter-agent messages (task delegation, notifications, sync triggers) via the mesh API and tooling (`src/api/mesh.rs`, `src/tools/builtin/mesh_communication.rs`).
+- **Graph Sync Pipeline**: Vector-clock negotiation chooses full vs incremental graph exchange; conflict resolution merges concurrent edits before persisting (`src/api/sync.rs`, `src/sync/engine.rs`, `src/sync/resolver.rs`).
+- **State Persistence**: Sync state, changelog, tombstones, and vector clocks are stored alongside graph data in DuckDB (`src/persistence`).
 
 ### Persistence Layer (DuckDB)
 - **Messages**: Conversation history
