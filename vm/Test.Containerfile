@@ -17,6 +17,5 @@ WORKDIR /build
 
 COPY . .
 
-RUN cargo build --release
-
-ENTRYPOINT ["/build/target/release/spec-ai"]
+ENTRYPOINT ["cargo"]
+CMD ["test"]
