@@ -25,7 +25,7 @@ api = ["dep:spec-ai-api", "spec-ai-core/api"]
 axum-extra = ["api"]
 
 [dependencies]
-spec-ai-core = { path = "../spec-ai-core" }
-spec-ai-config = { path = "../spec-ai-config" }
-spec-ai-policy = { path = "../spec-ai-policy" }
-spec-ai-api = { path = "../spec-ai-api", optional = true }
+spec-ai-core = { path = "../spec-ai-core", version = "0.4.8" }
+spec-ai-config = { path = "../spec-ai-config", version = "0.4.8" }
+spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.8" }
+spec-ai-api = { path = "../spec-ai-api", version = "0.4.8", optional = true }
