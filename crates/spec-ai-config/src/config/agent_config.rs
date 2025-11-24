@@ -13,7 +13,7 @@ use std::path::PathBuf;
 /// Embedded default configuration file
 const DEFAULT_CONFIG: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../spec-ai.config.toml"
+    "/spec-ai.config.toml"
 ));
 
 /// Configuration file name

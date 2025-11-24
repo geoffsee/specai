@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Policy enforcement for spec-ai framework"
 
 [dependencies]
 anyhow = { workspace = true }
@@ -12,7 +13,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-spec-ai-config = { path = "../spec-ai-config" }
+spec-ai-config = { path = "../spec-ai-config", version = "0.4.8" }
 
 [dev-dependencies]
-spec-ai-core = { path = "../spec-ai-core" }
+spec-ai-core = { path = "../spec-ai-core", version = "0.4.8" }

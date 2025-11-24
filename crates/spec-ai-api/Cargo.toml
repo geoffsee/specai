@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "HTTP API for spec-ai framework"
 
 [dependencies]
 anyhow = { workspace = true }
@@ -22,6 +23,6 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-spec-ai-core = { path = "../spec-ai-core" }
-spec-ai-config = { path = "../spec-ai-config" }
-spec-ai-policy = { path = "../spec-ai-policy" }
+spec-ai-core = { path = "../spec-ai-core", version = "0.4.8" }
+spec-ai-config = { path = "../spec-ai-config", version = "0.4.8" }
+spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.8" }
