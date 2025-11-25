@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_policy_persistence() {
-        use spec_ai_core::test_utils::create_test_db;
+        use spec_ai_config::test_utils::create_test_db;
 
         let persistence = create_test_db();
 
@@ -434,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_policy_reload() {
-        use spec_ai_core::test_utils::create_test_db;
+        use spec_ai_config::test_utils::create_test_db;
 
         let persistence = create_test_db();
 
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_load_empty_persistence() {
-        use spec_ai_core::test_utils::create_test_db;
+        use spec_ai_config::test_utils::create_test_db;
 
         let persistence = create_test_db();
 

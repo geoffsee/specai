@@ -12,12 +12,11 @@
 - `examples/code/` contains example Rust code demonstrating various features.
 - `examples/configs/` contains sample configuration files for different providers and setups.
 - `docs/` contains architecture docs (`ARCHITECTURE.md`), configuration guide (`CONFIGURATION.md`), setup instructions (`SETUP.md`), and other documentation.
-- Root assets include the main config (`spec-ai.config.toml`), the `Containerfile`, and the bundled DuckDB helper in `libduckdb`.
+- Root assets include the main config (`spec-ai.config.toml`) and the `Containerfile`.
 
 ## Build, Test, and Development Commands
-- `cargo binstall spec-ai --features bundled`: install the CLI with the bundled DuckDB runtime for fast iteration.
-- `cargo build/test --features bundled`: compile or run tests using the embedded DuckDB (per README guidance).
-- `./setup_duckdb.sh && source duckdb_env.sh`: switch to a system DuckDB build when the bundled option is insufficient before rerunning `cargo build`/`cargo test`.
+- `cargo build` / `cargo test`: compile or run tests using the system DuckDB (fast builds).
+- `cargo build --features bundled` / `cargo test --features bundled`: compile or run tests using the embedded DuckDB (for CI or systems without DuckDB installed).
 - `cargo run -p spec-ai-cli -- --config ./custom.toml`: launch the agent with the current directory config; `-c`/`--config` overrides.
 - `podman build -t spec-ai .` and `podman run --rm spec-ai --help` (Docker equivalent) exercise the containerized workflow.
 

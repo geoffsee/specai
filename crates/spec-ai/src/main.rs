@@ -30,7 +30,7 @@ struct Cli {
 enum Commands {
     /// Run one or more spec files
     Run {
-        /// Spec files or directories to run. If not provided, uses specs/smoke.spec
+        /// Spec files or directories to run. If not provided, uses spec/smoke.spec
         #[arg(value_name = "SPEC_OR_DIR")]
         specs: Vec<PathBuf>,
     },
@@ -458,11 +458,11 @@ async fn start_mesh_member(
 }
 
 async fn run_specs_command(config_path: Option<PathBuf>, spec_paths: Vec<PathBuf>) -> Result<i32> {
-    // Determine which specs to run
+    // Determine which spec to run
     let specs_to_run = if spec_paths.is_empty() {
-        let default_spec = PathBuf::from("specs/smoke.spec");
+        let default_spec = PathBuf::from("../../../spec/smoke.spec");
         if !default_spec.exists() {
-            eprintln!("Error: Default spec not found at 'specs/smoke.spec'.");
+            eprintln!("Error: Default spec not found at 'spec/smoke.spec'.");
             eprintln!("Please provide explicit spec files or create the default spec.");
             return Ok(1);
         }

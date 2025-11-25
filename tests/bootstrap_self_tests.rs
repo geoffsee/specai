@@ -10,7 +10,7 @@ use tempfile::tempdir;
 fn create_sample_repo(root: &Path) -> Result<()> {
     fs::create_dir_all(root.join("src"))?;
     fs::create_dir_all(root.join("docs"))?;
-    fs::create_dir_all(root.join("specs"))?;
+    fs::create_dir_all(root.join("spec"))?;
 
     fs::write(
         root.join("Cargo.toml"),
@@ -30,7 +30,7 @@ tokio = { version = "1", features = ["rt"] }
     fs::write(root.join("README.md"), "# Fixture Repo\n\nPriming test.")?;
     fs::write(root.join("src/lib.rs"), "pub fn demo() -> usize { 42 }\n")?;
     fs::write(root.join("docs/overview.md"), "Docs overview line")?;
-    fs::write(root.join("specs/sample.spec"), "name = \"demo\"\n")?;
+    fs::write(root.join("spec/sample.spec"), "name = \"demo\"\n")?;
     Ok(())
 }
 

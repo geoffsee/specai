@@ -23,6 +23,6 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-spec-ai-core = { path = "../spec-ai-core", version = "0.4.9", features = ["api"] }
-spec-ai-config = { path = "../spec-ai-config", version = "0.4.9" }
-spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.9" }
+spec-ai-core = { path = "../spec-ai-core", version = "0.4.10", features = ["api"] }
+spec-ai-config = { path = "../spec-ai-config", version = "0.4.10" }
+spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.10" }

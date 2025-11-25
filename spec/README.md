@@ -5,14 +5,14 @@ This directory contains example `.spec` files that demonstrate the capabilities 
 ## Running Specs
 
 ```bash
-# Run all specs in the directory
-spec-ai run specs/
+# Run all spec in the directory
+spec-ai run spec/
 
 # Run a specific spec
-spec-ai run specs/recursive_improvement.spec
+spec-ai run spec/recursive_improvement.spec
 
-# Run multiple specs
-spec-ai run specs/code_archaeologist.spec specs/quantum_debugger.spec
+# Run multiple spec
+spec-ai run spec/code_archaeologist.spec spec/quantum_debugger.spec
 ```
 
 ## Available Specs

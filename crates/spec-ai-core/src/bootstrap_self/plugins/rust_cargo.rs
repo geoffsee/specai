@@ -25,7 +25,7 @@ const SAMPLE_FILES_PER_COMPONENT: usize = 5;
 
 static BOOTSTRAP_PHASES: &[&str] = &[
     "Survey the repository layout and capture component stats",
-    "Index canonical documents and specs for semantic recall",
+    "Index canonical documents and spec for semantic recall",
     "Extract dependency and build surfaces from Cargo manifests",
     "Link every artifact into the session knowledge graph",
 ];
@@ -376,7 +376,7 @@ impl RustCargoPlugin {
             }
         }
 
-        let specs_dir = repo_root.join("specs");
+        let specs_dir = repo_root.join("../../../../../spec");
         if documents.len() < MAX_DOCUMENTS && specs_dir.is_dir() {
             for entry in WalkDir::new(&specs_dir)
                 .max_depth(1)
@@ -512,7 +512,7 @@ impl ComponentKind {
             "src" => ComponentKind::Source,
             "tests" | "test" => ComponentKind::Tests,
             "docs" => ComponentKind::Docs,
-            "specs" => ComponentKind::Specs,
+            "spec" => ComponentKind::Specs,
             "examples" => ComponentKind::Examples,
             "scripts" | "bin" => ComponentKind::Scripts,
             "config" | "configurations" => ComponentKind::Config,
@@ -526,7 +526,7 @@ impl ComponentKind {
             ComponentKind::Source => "source",
             ComponentKind::Tests => "tests",
             ComponentKind::Docs => "docs",
-            ComponentKind::Specs => "specs",
+            ComponentKind::Specs => "spec",
             ComponentKind::Examples => "examples",
             ComponentKind::Scripts => "scripts",
             ComponentKind::Config => "config",

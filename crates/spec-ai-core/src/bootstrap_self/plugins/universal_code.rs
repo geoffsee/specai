@@ -886,7 +886,7 @@ fn classify_component_type(name: &str) -> String {
         "tests" | "test" => "tests",
         "docs" => "documentation",
         "examples" => "examples",
-        "specs" => "specifications",
+        "spec" => "specifications",
         "scripts" | "bin" => "executables",
         "config" => "configuration",
         _ => "other",
