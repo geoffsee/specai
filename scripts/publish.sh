@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Publish spec-ai crates in dependency order
 #
@@ -24,13 +24,18 @@ CRATES=(
 WAIT_SECONDS=30
 
 DRY_RUN=false
-if [[ "$1" == "--dry-run" ]]; then
+if [[ "${1:-}" == "--dry-run" ]]; then
     DRY_RUN=true
     echo "=== DRY RUN MODE ==="
 fi
 
 # Get workspace version from root Cargo.toml
-VERSION=$(sed -n '/\[workspace\.package\]/,/\[/p' Cargo.toml | grep '^version' | head -1 | sed 's/.*"\(.*\)"/\1/')
+VERSION=$(
+    sed -n '/\[workspace\.package\]/,/\[/p' Cargo.toml \
+    | grep '^version' \
+    | head -1 \
+    | sed 's/.*"\(.*\)"/\1/'
+)
 echo "Workspace version: $VERSION"
 echo ""
 
@@ -38,8 +43,9 @@ echo ""
 is_published() {
     local crate=$1
     local version=$2
-    # Query crates.io API to check if version exists
-    local status=$(curl -s -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$crate/$version")
+    local status
+
+    status=$(curl -s -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$crate/$version")
     [[ "$status" == "200" ]]
 }
 
@@ -68,13 +74,25 @@ for i in "${!CRATES[@]}"; do
     if $DRY_RUN; then
         cargo publish -p "$crate" --dry-run
     else
-        cargo publish -p "$crate"
-        ((published_count++))
+        # Run publish, and if it fails, re-check crates.io to see
+        # whether the version actually ended up published anyway
+        if cargo publish -p "$crate"; then
+            ((published_count++))
+        else
+            echo "cargo publish failed for $crate@$VERSION, checking crates.io..." >&2
+            if is_published "$crate" "$VERSION"; then
+                echo "Version $VERSION for $crate is now visible on crates.io; treating as success."
+                ((skipped_count++))
+            else
+                echo "Version $VERSION for $crate is NOT published; failing the job." >&2
+                exit 1
+            fi
+        fi
 
         # Wait between publishes (except for the last one)
         if [[ $i -lt $((${#CRATES[@]} - 1)) ]]; then
             echo "Waiting ${WAIT_SECONDS}s for crates.io index to update..."
-            sleep $WAIT_SECONDS
+            sleep "$WAIT_SECONDS"
         fi
     fi
 
@@ -82,4 +100,4 @@ for i in "${!CRATES[@]}"; do
 done
 
 echo "=== Done ==="
-echo "Published: $published_count, Skipped: $skipped_count"
+echo "Published: $published_count, Skipped (already published / race): $skipped_count"
