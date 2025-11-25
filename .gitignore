@@ -12,5 +12,7 @@ prompt.md
 /libduckdb
 /duckdb_env.sh
 libduckdb-osx-universal.zip
+/.cargo/config.toml
 /project-docs/
 /vm/
+test.out

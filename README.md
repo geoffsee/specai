@@ -145,8 +145,8 @@ Specs must include a `goal` plus at least one entry in `tasks` or `deliverables`
 To run spec files, use the `spec-ai run` command:
 
 ```bash
-spec-ai run                      # runs specs/smoke.spec by default
-spec-ai run specs/               # run all *.spec files inside specs/
+spec-ai run                      # runs spec/smoke.spec by default
+spec-ai run spec/               # run all *.spec files inside spec/
 spec-ai run custom.spec          # run a specific spec file
 spec-ai run spec1.spec spec2.spec # run multiple spec files
 ```

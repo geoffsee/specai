@@ -13,7 +13,7 @@ use spec_ai::cli::formatting;
 fn build_repo_fixture(path: &Path) {
     fs::create_dir_all(path.join("src")).unwrap();
     fs::create_dir_all(path.join("docs")).unwrap();
-    fs::create_dir_all(path.join("specs")).unwrap();
+    fs::create_dir_all(path.join("spec")).unwrap();
     fs::write(
         path.join("Cargo.toml"),
         r#"
@@ -30,7 +30,7 @@ serde = "1.0"
     fs::write(path.join("README.md"), "# CLI Fixture\n").unwrap();
     fs::write(path.join("src/lib.rs"), "pub fn sample() {}\n").unwrap();
     fs::write(path.join("docs/guide.md"), "Docs\n").unwrap();
-    fs::write(path.join("specs/basic.spec"), "name = \"sample\"\n").unwrap();
+    fs::write(path.join("spec/basic.spec"), "name = \"sample\"\n").unwrap();
 }
 
 struct EnvVarGuard {

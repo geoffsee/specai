@@ -60,7 +60,7 @@ temperature = 0.7
     // Create a test spec file
     let spec_content = r#"
 name = "Integration Test Spec"
-goal = "Verify that the spec-ai binary can execute specs end-to-end"
+goal = "Verify that the spec-ai binary can execute spec end-to-end"
 
 tasks = [
     "Load and parse this spec file",

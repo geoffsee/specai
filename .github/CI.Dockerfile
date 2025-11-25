@@ -35,4 +35,23 @@ ENV JAVA_HOME=/usr/lib/jvm/default-java
 
 WORKDIR /build
 
+# Install DuckDB development libraries (must match libduckdb-sys version)
+ARG DUCKDB_VERSION=1.4.1
+RUN wget -q https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-linux-amd64.zip \
+    && unzip libduckdb-linux-amd64.zip -d /tmp/duckdb \
+    && mv /tmp/duckdb/libduckdb.so /usr/local/lib/ \
+    && mv /tmp/duckdb/duckdb.h /tmp/duckdb/duckdb.hpp /usr/local/include/ \
+    && rm -rf /tmp/duckdb libduckdb-linux-amd64.zip \
+    && echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf \
+    && ldconfig
+
+# Set library paths for linker
+ENV LIBRARY_PATH=/usr/local/lib:$LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+
+# Configure Cargo to find system DuckDB
+RUN mkdir -p /root/.cargo && printf '[env]\nDUCKDB_LIB_DIR = "/usr/local/lib"\nDUCKDB_INCLUDE_DIR = "/usr/local/include"\n' > /root/.cargo/config.toml
+
+RUN curl https://install.duckdb.org | sh
+
 CMD ["rustc", "--version"]

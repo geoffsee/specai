@@ -1,0 +1,17 @@
+# Copy this file to config.toml and adjust paths for your system DuckDB installation.
+# This enables faster builds by using the system DuckDB instead of the bundled version.
+#
+# Alternatively, use `cargo build --features bundled` to compile DuckDB from source.
+
+[env]
+# macOS (Homebrew Apple Silicon)
+DUCKDB_LIB_DIR = "/opt/homebrew/opt/duckdb/lib"
+DUCKDB_INCLUDE_DIR = "/opt/homebrew/opt/duckdb/include"
+
+# macOS (Homebrew Intel)
+# DUCKDB_LIB_DIR = "/usr/local/opt/duckdb/lib"
+# DUCKDB_INCLUDE_DIR = "/usr/local/opt/duckdb/include"
+
+# Linux (typical)
+# DUCKDB_LIB_DIR = "/usr/lib"
+# DUCKDB_INCLUDE_DIR = "/usr/include"

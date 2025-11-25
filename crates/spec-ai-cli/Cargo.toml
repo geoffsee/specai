@@ -10,7 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["bundled", "openai", "lmstudio", "web-scraping", "vttrs", "api"]
+default = ["openai", "lmstudio", "web-scraping", "vttrs", "api"]
 bundled = ["spec-ai/bundled"]
 duck-sys = ["spec-ai/duck-sys"]
 openai = ["spec-ai/openai"]
@@ -33,4 +33,4 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 walkdir = { workspace = true }
-spec-ai = { path = "../spec-ai", version = "0.4.9" }
+spec-ai = { path = "../spec-ai", version = "0.4.10" }

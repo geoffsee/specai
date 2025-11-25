@@ -636,10 +636,10 @@ spec-ai --config /path/to/config.toml
 spec-ai run path/to/spec.spec
 
 # Run all spec files in a directory
-spec-ai run specs/
+spec-ai run spec/
 
 # Run multiple spec files
-spec-ai run spec1.spec spec2.spec specs/dir/
+spec-ai run spec1.spec spec2.spec spec/dir/
 ```
 
 ### Subcommands
@@ -647,17 +647,17 @@ spec-ai run spec1.spec spec2.spec specs/dir/
 #### `run` - Execute spec files
 
 ```bash
-# Run default spec (specs/smoke.spec)
+# Run default spec (spec/smoke.spec)
 spec-ai run
 
 # Run specific spec file
 spec-ai run my-spec.spec
 
-# Run all specs in directory
-spec-ai run specs/
+# Run all spec in directory
+spec-ai run spec/
 
 # Run with custom config
-spec-ai --config custom.toml run specs/
+spec-ai --config custom.toml run spec/
 ```
 
 ## Example Configurations
