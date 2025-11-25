@@ -24,8 +24,9 @@ echo "Building CI image: ${IMAGE_NAME}:${TAG}"
 echo ""
 
 docker build \
+    --platform linux/amd64 \
     -t "${IMAGE_NAME}:${TAG}" \
-    -f vm/CI.Dockerfile \
+    -f .github/CI.Dockerfile \
     .
 
 echo ""
