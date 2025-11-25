@@ -1,0 +1,204 @@
+# spec-ai Configuration
+# Multi-model reasoning and knowledge graph are enabled by default
+
+# Default agent with advanced features
+default_agent = "default"
+
+[database]
+path = "~/.spec-ai/demo-agent_data.db"
+
+[model]
+provider = "openai"
+model_name = "gpt-4.1"
+embeddings_model = "text-embedding-3-small"
+
+# API key source (optional)
+# Examples: "env:OPENAI_API_KEY", "file:~/.secrets/api_key"
+# api_key_source = "env:OPENAI_API_KEY"
+
+# Temperature for main model
+temperature = 0.7
+
+# UI configuration
+[ui]
+# Theme: "default", "dark", "light"
+theme = "default"
+# Prompt string
+prompt = "specai (openai)> "
+
+# Logging configuration
+[logging]
+# Log level: "trace", "debug", "info", "warn", "error"
+level = "info"
+
+# Audio transcription configuration
+[audio]
+# Transcription provider: "mock" or "vttrs"
+provider = "vttrs"
+
+# Model for transcription (e.g., "whisper-1", "whisper-large-v3")
+model = "whisper-1"
+
+# API key source for cloud transcription (optional)
+# Examples: "env:OPENAI_API_KEY", "file:~/.secrets/api_key"
+# api_key_source = "env:OPENAI_API_KEY"
+
+# Use on-device (offline) transcription
+# Set to true to use local Whisper model without API key
+on_device = false
+
+# Custom API endpoint (optional, defaults to OpenAI)
+# endpoint = "https://api.openai.com/v1"
+
+# Audio chunk duration in seconds (how often to send audio for transcription)
+chunk_duration_secs = 5.0
+
+# Default transcription duration in seconds (for /listen command)
+default_duration_secs = 30
+
+# Output file path for saving transcripts (optional)
+# out_file = "~/transcripts/recording.txt"
+
+# Language code (optional, e.g., "en", "es", "fr")
+# language = "en"
+
+# Automatically respond to transcriptions with AI
+auto_respond = false
+
+# ========== DEFAULT AGENT WITH ALL FEATURES ==========
+[agents.default]
+# System prompt
+prompt = """You are an autonomous assistant with advanced reasoning capabilities
+derived from hierarchical multi-model reasoning developed using
+a knowledge graph to track context and relationships."""
+
+# These will prompt approval
+denied_tools = [
+    "audio_transcribe",
+    "bash",
+    "file_extract",
+    "file_read",
+    "file_write",
+    "search",
+    "shell",
+    "web_scraper",
+    "web_search"
+]
+
+# Temperature for main model responses
+temperature = 0.7
+
+# Memory configuration
+memory_k = 20  # Number of messages to recall
+top_p = 0.9    # Top-p sampling for memory recall
+
+# ========== KNOWLEDGE GRAPH (DEFAULT: ENABLED) ==========
+enable_graph = true         # Build and use knowledge graph
+graph_memory = true         # Use graph for memory recall
+auto_graph = true          # Automatically extract entities and relationships
+graph_steering = true      # Let graph influence decisions
+graph_depth = 3           # Traversal depth for context
+graph_weight = 0.5        # Balance between graph and semantic (0.0-1.0)
+graph_threshold = 0.7     # Tool recommendation threshold
+
+# ========== MULTI-MODEL REASONING (DEFAULT: ENABLED) ==========
+fast_reasoning = true      # Use fast model for simple tasks
+
+# Fast model configuration (Llama-3.2-3B)
+fast_model_provider = "openai"  # Use LM Studio local server
+fast_model_name = "gpt-4.1-mini"
+fast_model_temperature = 0.3  # Lower for consistency
+
+# For cross-platform (Ollama), uncomment:
+# fast_model_provider = "ollama"
+# fast_model_name = "llama3.2:3b"
+
+# Tasks delegated to fast model for 10-15x speedup
+fast_model_tasks = [
+    "entity_extraction",      # Extract names, dates, URLs
+    "graph_analysis",         # Analyze graph relationships
+    "decision_routing",       # Determine task complexity
+    "tool_selection",        # Choose appropriate tools
+    "confidence_scoring",    # Assess response confidence
+]
+
+# Escalate to main model if confidence < 60%
+escalation_threshold = 0.6
+
+# Display reasoning summary to user (requires fast_reasoning = true)
+# Shows a concise summary of the model's thought process
+show_reasoning = false  # Default: false
+
+# ========== SPECIALIZED AGENTS ==========
+
+[agents.coder]
+# Coding assistant with syntax checking via fast model
+prompt = "You are a helpful coding assistant. You write clean, well-documented code and follow best practices."
+style = "professional"
+temperature = 0.3
+allowed_tools = ["file_read", "file_write", "bash", "search", "file_extract"]
+# prompt_user is implicitly allowed unless you add it to denied_tools.
+memory_k = 25
+
+# Use graph for code structure tracking
+enable_graph = true
+graph_memory = true
+auto_graph = true
+
+# Fast model for syntax and analysis
+fast_reasoning = true
+fast_model_temperature = 0.1  # Very low for deterministic checking
+fast_model_tasks = [
+    "syntax_checking",
+    "linting",
+    "import_resolution",
+    "variable_tracking",
+]
+
+[agents.researcher]
+# Research assistant with enhanced graph traversal
+prompt = "You are a research assistant. You help gather, analyze, and synthesize information from various sources."
+temperature = 0.5
+denied_tools = ["bash", "file_write"]
+memory_k = 30
+
+# Deep graph for research connections
+enable_graph = true
+graph_memory = true
+graph_depth = 5  # Deeper traversal
+graph_weight = 0.7  # Favor graph relationships
+
+# Fast model for document processing
+fast_reasoning = true
+fast_model_tasks = [
+    "entity_extraction",
+    "keyword_extraction",
+    "metadata_extraction",
+]
+
+[agents.creative]
+# Creative writing with minimal fast model usage
+prompt = "You are a creative writing assistant. You help with storytelling, brainstorming, and creative expression."
+temperature = 1.2
+style = "casual"
+memory_k = 15
+
+# Graph for narrative tracking
+enable_graph = true
+graph_memory = true
+graph_steering = false  # Less steering for creativity
+
+# Minimal fast model (only for tracking)
+fast_reasoning = true
+fast_model_tasks = ["entity_extraction"]
+escalation_threshold = 0.3  # Quickly escalate creative tasks
+
+[agents.simple]
+# Simple agent without advanced features (backward compatibility)
+prompt = "You are a helpful assistant."
+temperature = 0.7
+memory_k = 10
+
+# Disable advanced features
+enable_graph = false
+fast_reasoning = false

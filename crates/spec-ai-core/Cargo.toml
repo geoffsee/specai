@@ -50,5 +50,5 @@ toml = { workspace = true }
 uuid = { workspace = true }
 walkdir = { workspace = true }
 vtt-rs = { workspace = true }
-spec-ai-config = { path = "../spec-ai-config", version = "0.4.8" }
-spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.8" }
+spec-ai-config = { path = "../spec-ai-config", version = "0.4.9" }
+spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.9" }

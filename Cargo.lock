@@ -5665,17 +5665,25 @@ dependencies = [
 
 [[package]]
 name = "spec-ai"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "reqwest 0.12.24",
  "spec-ai-api",
  "spec-ai-config",
  "spec-ai-core",
  "spec-ai-policy",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "walkdir",
 ]
 
 [[package]]
 name = "spec-ai-api"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -5700,7 +5708,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai-cli"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5715,7 +5723,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai-config"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5737,7 +5745,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai-core"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "anyhow",
  "async-openai",
@@ -5776,7 +5784,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai-policy"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "anyhow",
  "async-trait",
