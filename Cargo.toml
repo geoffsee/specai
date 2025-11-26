@@ -6,13 +6,14 @@ members = [
     "crates/spec-ai-policy",
     "crates/spec-ai-api",
     "crates/spec-ai-cli",
+    "crates/spec-ai-plugin",
 ]
 default-members = ["crates/spec-ai"]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "0.4.14"
+version = "0.4.15"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/geoffsee/spec-ai"
 documentation = "https://docs.rs/spec-ai"
@@ -21,6 +22,7 @@ keywords = ["ai", "agents", "llm", "policy", "framework"]
 categories = ["development-tools"]
 
 [workspace.dependencies]
+abi_stable = "0.11"
 anyhow = "1.0"
 async-openai = "0.30.1"
 async-stream = "0.3"

@@ -1,4 +1,5 @@
 pub mod builtin;
+pub mod plugin_adapter;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -20,6 +21,8 @@ use self::builtin::WebSearchTool;
 use self::builtin::WebScraperTool;
 use crate::embeddings::EmbeddingsClient;
 use crate::persistence::Persistence;
+
+pub use plugin_adapter::PluginToolAdapter;
 
 #[cfg(feature = "openai")]
 use async_openai::types::ChatCompletionTool;
@@ -182,6 +185,67 @@ impl ToolRegistry {
     /// Check if the registry is empty
     pub fn is_empty(&self) -> bool {
         self.tools.is_empty()
+    }
+
+    /// Load plugins from a directory and register their tools
+    ///
+    /// # Arguments
+    /// * `dir` - Directory containing plugin libraries
+    /// * `allow_override` - Whether plugins can override built-in tools
+    ///
+    /// # Returns
+    /// Statistics about the loading process
+    pub fn load_plugins(
+        &mut self,
+        dir: &std::path::Path,
+        allow_override: bool,
+    ) -> anyhow::Result<spec_ai_plugin::LoadStats> {
+        use spec_ai_plugin::{expand_tilde, PluginLoader};
+
+        let expanded_dir = expand_tilde(dir);
+
+        let mut loader = PluginLoader::new();
+        let stats = loader.load_directory(&expanded_dir)?;
+
+        // Register tools from plugins
+        for (tool_ref, plugin_name) in loader.all_tools() {
+            let adapter = match PluginToolAdapter::new(tool_ref, plugin_name) {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::warn!("Failed to create adapter for tool from {}: {}", plugin_name, e);
+                    continue;
+                }
+            };
+
+            let tool_name = adapter.name().to_string();
+
+            // Check for conflicts with built-in tools
+            if self.has(&tool_name) {
+                if allow_override {
+                    tracing::info!(
+                        "Plugin tool '{}' from '{}' overriding built-in tool",
+                        tool_name,
+                        plugin_name
+                    );
+                } else {
+                    tracing::warn!(
+                        "Plugin tool '{}' from '{}' would override built-in, skipping (set allow_override_builtin=true to allow)",
+                        tool_name,
+                        plugin_name
+                    );
+                    continue;
+                }
+            }
+
+            tracing::debug!(
+                "Registering plugin tool '{}' from '{}'",
+                tool_name,
+                plugin_name
+            );
+            self.register(Arc::new(adapter));
+        }
+
+        Ok(stats)
     }
 
     /// Convert all tools in the registry to OpenAI ChatCompletionTool format.

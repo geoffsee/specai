@@ -1115,7 +1115,9 @@ mod tests {
     use crate::agent::core::{MemoryRecallStats, MemoryRecallStrategy, ToolInvocation};
     use crate::agent::model::TokenUsage;
     use crate::agent::AgentOutput;
-    use crate::config::{AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
+    use crate::config::{
+        AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, PluginConfig, UiConfig,
+    };
     use serde_json::json;
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -1283,6 +1285,7 @@ mod tests {
             },
             audio: AudioConfig::default(),
             mesh: crate::config::MeshConfig::default(),
+            plugins: PluginConfig::default(),
             agents,
             default_agent: Some("test".into()),
         };
@@ -1345,6 +1348,7 @@ mod tests {
             },
             audio: AudioConfig::default(),
             mesh: crate::config::MeshConfig::default(),
+            plugins: PluginConfig::default(),
             agents,
             default_agent: Some("coder".into()),
         };
@@ -1395,6 +1399,7 @@ mod tests {
             },
             audio: AudioConfig::default(),
             mesh: crate::config::MeshConfig::default(),
+            plugins: PluginConfig::default(),
             agents,
             default_agent: Some("test".into()),
         };
@@ -1441,6 +1446,7 @@ mod tests {
             },
             audio: AudioConfig::default(),
             mesh: crate::config::MeshConfig::default(),
+            plugins: PluginConfig::default(),
             agents,
             default_agent: Some("test".into()),
         };

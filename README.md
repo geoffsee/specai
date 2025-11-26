@@ -31,6 +31,7 @@ crates/
 ├── spec-ai-core/       # Agent runtime, tools, embeddings, CLI helpers
 ├── spec-ai-config/     # Config models, persistence layer, shared types
 ├── spec-ai-policy/     # Policy engine and plugin system
+├── spec-ai-plugin/     # Custom tool plugin system (dynamic library loading)
 ├── spec-ai-api/        # HTTP/mesh server and sync coordinator
 └── spec-ai/            # Public library crate re-exporting the pieces above
 
@@ -172,6 +173,50 @@ memory_k = 20
 ```
 
 `prompt_user` is implicitly allowed (unless you add it to `denied_tools`) so agents can always escalate to a human for clarification.
+
+### Custom Tool Plugins
+
+You can extend the agent with custom tools implemented as Rust dynamic libraries. Plugins are auto-discovered from a configured directory at startup.
+
+**Configuration:**
+
+```toml
+[plugins]
+enabled = true
+custom_tools_dir = "~/.spec-ai/tools"
+continue_on_error = true        # Continue if some plugins fail to load
+allow_override_builtin = false  # Prevent plugins from replacing built-in tools
+```
+
+**Creating a Plugin:**
+
+1. Create a new Rust library with `crate-type = ["cdylib"]`
+2. Implement the ABI-stable plugin interface (see `crates/spec-ai-plugin/examples/greeting_plugin/`)
+3. Build with `cargo build --release`
+4. Copy the library to your plugins directory:
+   - macOS: `~/.spec-ai/tools/libmy_plugin.dylib`
+   - Linux: `~/.spec-ai/tools/libmy_plugin.so`
+   - Windows: `~/.spec-ai/tools/my_plugin.dll`
+
+**Example Plugin:**
+
+```rust
+use abi_stable::std_types::{RStr, RString, RVec};
+
+// Define your tool's execute function
+extern "C" fn my_tool_execute(args_json: RStr<'_>) -> PluginToolResult {
+    // Parse args, do work, return result
+    PluginToolResult::success("Tool executed!")
+}
+
+// Export the plugin module
+#[abi_stable::export_root_module]
+fn get_library() -> PluginModuleRef {
+    // Return module with api_version, plugin_name, get_tools
+}
+```
+
+Plugin tools can be referenced by name in agent profiles via `allowed_tools` and `denied_tools` just like built-in tools.
 
 ## Testing
 

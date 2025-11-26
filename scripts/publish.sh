@@ -6,7 +6,8 @@ set -euo pipefail
 # Dependency graph:
 #   spec-ai-config (no internal deps)
 #   spec-ai-policy -> spec-ai-config
-#   spec-ai-core   -> spec-ai-config, spec-ai-policy
+#   spec-ai-plugin (no internal deps)
+#   spec-ai-core   -> spec-ai-config, spec-ai-policy, spec-ai-plugin
 #   spec-ai-api    -> spec-ai-core, spec-ai-config, spec-ai-policy
 #   spec-ai        -> spec-ai-core, spec-ai-config, spec-ai-policy, spec-ai-api
 #   spec-ai-cli    -> spec-ai
@@ -14,6 +15,7 @@ set -euo pipefail
 CRATES=(
     "spec-ai-config"
     "spec-ai-policy"
+    "spec-ai-plugin"
     "spec-ai-core"
     "spec-ai-api"
     "spec-ai-cli"

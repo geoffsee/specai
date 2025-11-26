@@ -143,7 +143,9 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_config() -> AppConfig {
-        use crate::config::{AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig};
+        use crate::config::{
+            AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, PluginConfig, UiConfig,
+        };
         use std::collections::HashMap;
         use std::path::PathBuf;
 
@@ -167,6 +169,7 @@ mod tests {
             },
             audio: AudioConfig::default(),
             mesh: crate::config::MeshConfig::default(),
+            plugins: PluginConfig::default(),
             agents: HashMap::new(),
             default_agent: None,
         }

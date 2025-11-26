@@ -144,9 +144,11 @@ impl AgentBuilder {
 
         // Get or create tool registry (defaults to built-in tools)
         // Create this before the provider so OpenAI can be configured with tools
-        let tool_registry = self.tool_registry.unwrap_or_else(|| {
+        let tool_registry = if let Some(registry) = self.tool_registry {
+            registry
+        } else {
             let persistence_arc = Arc::new(persistence.clone());
-            let registry =
+            let mut registry =
                 ToolRegistry::with_builtin_tools(Some(persistence_arc), embeddings_client.clone());
             info!(
                 "Created tool registry with {} builtin tools",
@@ -155,8 +157,44 @@ impl AgentBuilder {
             for tool_name in registry.list() {
                 tracing::debug!("  - Registered tool: {}", tool_name);
             }
+
+            // Load plugins if enabled
+            if let Some(ref config) = self.config {
+                if config.plugins.enabled {
+                    match registry.load_plugins(
+                        &config.plugins.custom_tools_dir,
+                        config.plugins.allow_override_builtin,
+                    ) {
+                        Ok(stats) => {
+                            if stats.loaded > 0 {
+                                info!(
+                                    "Loaded {} plugins with {} tools from {}",
+                                    stats.loaded,
+                                    stats.tools_loaded,
+                                    config.plugins.custom_tools_dir.display()
+                                );
+                            }
+                            if stats.failed > 0 {
+                                warn!(
+                                    "{} plugins failed to load",
+                                    stats.failed
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            if config.plugins.continue_on_error {
+                                warn!("Plugin loading failed (continuing): {}", e);
+                            } else {
+                                // Re-wrap as anyhow error to propagate
+                                return Err(anyhow::anyhow!("Plugin loading failed: {}", e));
+                            }
+                        }
+                    }
+                }
+            }
+
             Arc::new(registry)
-        });
+        };
 
         // Get or create provider with tools configured (for OpenAI-compatible providers)
         let provider = if let Some(provider) = self.provider {
@@ -442,7 +480,8 @@ mod tests {
     use super::*;
     use crate::agent::providers::MockProvider;
     use crate::config::{
-        AgentProfile, AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, UiConfig,
+        AgentProfile, AudioConfig, DatabaseConfig, LoggingConfig, ModelConfig, PluginConfig,
+        UiConfig,
     };
     use std::collections::HashMap;
     use tempfile::tempdir;
@@ -469,6 +508,7 @@ mod tests {
             },
             audio: AudioConfig::default(),
             mesh: crate::config::MeshConfig::default(),
+            plugins: PluginConfig::default(),
             agents: HashMap::new(),
             default_agent: None,
         }

@@ -38,8 +38,9 @@ FILES=(
     "crates/spec-ai-core/Cargo.toml"
     "crates/spec-ai-config/Cargo.toml"
     "crates/spec-ai-policy/Cargo.toml"
-    "crates/spec-ai-api/Cargo.toml"
+    "crates/spec-ai-plugin/Cargo.toml"
     "crates/spec-ai-cli/Cargo.toml"
+    "crates/spec-ai-api/Cargo.toml"
 )
 
 # Update each file
@@ -76,6 +77,7 @@ echo "  5. Publish crates in order:"
 echo "     cargo publish -p spec-ai-config"
 echo "     cargo publish -p spec-ai-policy"
 echo "     cargo publish -p spec-ai-core"
+echo "     cargo publish -p spec-ai-plugin"
 echo "     cargo publish -p spec-ai-api"
-echo "     cargo publish -p spec-ai"
 echo "     cargo publish -p spec-ai-cli"
+echo "     cargo publish -p spec-ai"

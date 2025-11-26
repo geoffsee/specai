@@ -1,16 +1,22 @@
 [package]
-name = "spec-ai-policy"
+name = "spec-ai-plugin"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Policy enforcement for spec-ai framework"
+description = "Plugin system for custom tools in spec-ai"
+
+[features]
+default = []
+# For plugin authors - minimal dependencies
+plugin-api = []
 
 [dependencies]
+abi_stable = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
-spec-ai-config = { path = "../spec-ai-config", version = "0.4.15" }
+walkdir = { workspace = true }

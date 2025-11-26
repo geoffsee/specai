@@ -40,6 +40,9 @@ pub struct AppConfig {
     /// Mesh networking configuration
     #[serde(default)]
     pub mesh: MeshConfig,
+    /// Plugin configuration for custom tools
+    #[serde(default)]
+    pub plugins: PluginConfig,
     /// Available agent profiles
     #[serde(default)]
     pub agents: HashMap<String, AgentProfile>,
@@ -460,6 +463,45 @@ impl Default for AudioConfig {
             auto_respond: false,
             mock_scenario: default_mock_scenario(),
             event_delay_ms: default_event_delay_ms(),
+        }
+    }
+}
+
+/// Plugin configuration for custom tools
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginConfig {
+    /// Enable plugin loading
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Directory containing plugin libraries (.dylib/.so/.dll)
+    #[serde(default = "default_plugins_dir")]
+    pub custom_tools_dir: PathBuf,
+
+    /// Continue startup even if some plugins fail to load
+    #[serde(default = "default_continue_on_error")]
+    pub continue_on_error: bool,
+
+    /// Allow plugins to override built-in tools
+    #[serde(default)]
+    pub allow_override_builtin: bool,
+}
+
+fn default_plugins_dir() -> PathBuf {
+    PathBuf::from("~/.spec-ai/tools")
+}
+
+fn default_continue_on_error() -> bool {
+    true
+}
+
+impl Default for PluginConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            custom_tools_dir: default_plugins_dir(),
+            continue_on_error: true,
+            allow_override_builtin: false,
         }
     }
 }
