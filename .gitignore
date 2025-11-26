@@ -16,3 +16,4 @@ libduckdb-osx-universal.zip
 /project-docs/
 /vm/
 test.out
+crates/spec-ai/target/
