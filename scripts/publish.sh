@@ -16,8 +16,8 @@ CRATES=(
     "spec-ai-policy"
     "spec-ai-core"
     "spec-ai-api"
-    "spec-ai"
     "spec-ai-cli"
+    "spec-ai"
 )
 
 # Time to wait between publishes for crates.io index to update

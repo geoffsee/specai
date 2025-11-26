@@ -49,8 +49,8 @@ toml = { workspace = true }
 uuid = { workspace = true }
 walkdir = { workspace = true }
 vtt-rs = { workspace = true }
-spec-ai-config = { path = "../spec-ai-config", version = "0.4.13" }
-spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.13" }
+spec-ai-config = { path = "../spec-ai-config", version = "0.4.14" }
+spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.14" }
 
 # extractous only on non-macOS (uses GraalVM/Tika which has AWT issues on macOS)
 [target.'cfg(not(target_os = "macos"))'.dependencies]

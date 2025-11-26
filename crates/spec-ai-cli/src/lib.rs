@@ -1,16 +1,16 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use spec_ai::cli::CliState;
-use spec_ai::spec::AgentSpec;
+use spec_ai_core::cli::CliState;
+use spec_ai_core::spec::AgentSpec;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
 #[cfg(feature = "api")]
 use {
-    spec_ai::api::server::{ApiConfig, ApiServer},
-    spec_ai::config::AgentRegistry,
-    spec_ai::persistence::Persistence,
-    spec_ai::tools::ToolRegistry,
+    spec_ai_api::api::server::{ApiConfig, ApiServer},
+    spec_ai_config::config::AgentRegistry,
+    spec_ai_config::persistence::Persistence,
+    spec_ai_core::tools::ToolRegistry,
     std::sync::Arc,
 };
 
@@ -115,9 +115,9 @@ async fn start_server(
     port: u16,
     join: Option<String>,
 ) -> Result<()> {
-    use spec_ai::api::mesh::MeshClient;
-    use spec_ai::config::AppConfig;
-    use spec_ai::embeddings::EmbeddingsClient;
+    use spec_ai_api::api::mesh::MeshClient;
+    use spec_ai_config::config::AppConfig;
+    use spec_ai_core::embeddings::EmbeddingsClient;
     use std::net::TcpListener;
 
     // Generate unique instance ID
@@ -265,7 +265,7 @@ async fn start_server(
 
     // Self-register as leader in the mesh registry
     let mesh_registry = server.mesh_registry();
-    let self_instance = spec_ai::api::mesh::MeshInstance {
+    let self_instance = spec_ai_api::api::mesh::MeshInstance {
         instance_id: instance_id.clone(),
         hostname: host.clone(),
         port,
@@ -329,9 +329,9 @@ async fn start_mesh_member(
     registry_url: String,
     instance_id: String,
 ) -> Result<()> {
-    use spec_ai::api::mesh::MeshClient;
-    use spec_ai::config::AppConfig;
-    use spec_ai::embeddings::EmbeddingsClient;
+    use spec_ai_api::api::mesh::MeshClient;
+    use spec_ai_config::config::AppConfig;
+    use spec_ai_core::embeddings::EmbeddingsClient;
 
     println!("Starting as mesh member on {}:{}", host, port);
     println!("Registry at: {}", registry_url);
@@ -520,7 +520,7 @@ async fn run_specs_command(config_path: Option<PathBuf>, spec_paths: Vec<PathBuf
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+pub async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {

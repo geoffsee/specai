@@ -11,20 +11,25 @@ categories.workspace = true
 
 [features]
 default = ["openai", "lmstudio", "web-scraping", "vttrs", "api"]
-bundled = ["spec-ai/bundled"]
-duck-sys = ["spec-ai/duck-sys"]
-openai = ["spec-ai/openai"]
-anthropic = ["spec-ai/anthropic"]
-ollama = ["spec-ai/ollama"]
-mlx = ["spec-ai/mlx"]
-lmstudio = ["spec-ai/lmstudio"]
-vttrs = ["spec-ai/vttrs"]
-web-scraping = ["spec-ai/web-scraping"]
-integration-tests = ["spec-ai/integration-tests"]
-api = ["spec-ai/api"]
-axum-extra = ["spec-ai/axum-extra"]
+bundled = ["spec-ai-config/bundled"]
+duck-sys = ["spec-ai-config/duck-sys"]
+openai = ["spec-ai-core/openai"]
+anthropic = ["spec-ai-core/anthropic"]
+ollama = ["spec-ai-core/ollama"]
+mlx = ["spec-ai-core/mlx"]
+lmstudio = ["spec-ai-core/lmstudio"]
+vttrs = ["spec-ai-core/vttrs"]
+web-scraping = ["spec-ai-core/web-scraping"]
+integration-tests = ["spec-ai-core/integration-tests"]
+api = ["dep:spec-ai-api", "spec-ai-core/api"]
+axum-extra = ["api"]
 
 [dependencies]
+spec-ai-core = { path = "../spec-ai-core", version = "0.4.14" }
+spec-ai-config = { path = "../spec-ai-config", version = "0.4.14" }
+spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.14" }
+spec-ai-api = { path = "../spec-ai-api", version = "0.4.14", optional = true }
+
 chrono = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
@@ -33,4 +38,3 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 walkdir = { workspace = true }
-spec-ai = { path = "../spec-ai", version = "0.4.13" }
