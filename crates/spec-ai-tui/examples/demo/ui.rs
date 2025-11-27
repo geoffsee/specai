@@ -1,7 +1,7 @@
 //! Rendering routines for the demo application.
 
 use crate::models::ProcessStatus;
-use crate::state::{DemoState, Panel};
+use crate::state::{DemoState, DisplayMode, Panel};
 use spec_ai_tui::{
     buffer::Buffer,
     geometry::Rect,
@@ -14,6 +14,22 @@ use spec_ai_tui::{
 };
 
 pub fn render(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    if state.display_mode == DisplayMode::GlassesHud {
+        render_glass_mode(state, area, buf);
+
+        // Keep overlays available even in HUD mode for debugging/demo parity.
+        if state.show_process_panel {
+            render_process_overlay(state, area, buf);
+        }
+        if state.show_history {
+            render_history_overlay(state, area, buf);
+        }
+        if state.viewing_logs.is_some() {
+            render_log_overlay(state, area, buf);
+        }
+        return;
+    }
+
     // Main layout: content + status
     let main_chunks = Layout::vertical()
         .constraints([
@@ -45,6 +61,198 @@ pub fn render(state: &DemoState, area: Rect, buf: &mut Buffer) {
     }
     if state.viewing_logs.is_some() {
         render_log_overlay(state, area, buf);
+    }
+}
+
+fn render_glass_mode(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    // Keep the background consistent and low-noise for a small FOV.
+    for y in area.y..area.bottom() {
+        for x in area.x..area.right() {
+            if let Some(cell) = buf.get_mut(x, y) {
+                cell.bg = Color::Rgb(5, 7, 12);
+            }
+        }
+    }
+
+    let chunks = Layout::vertical()
+        .constraints([
+            Constraint::Fixed(1), // Status bar
+            Constraint::Fill(1),  // Focus card
+            Constraint::Fixed(3), // Quick controls
+        ])
+        .split(area);
+
+    render_glass_status_bar(state, chunks[0], buf);
+    render_glass_focus_card(state, chunks[1], buf);
+    render_glass_footer(state, chunks[2], buf);
+}
+
+fn render_glass_status_bar(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    let mic = if state.listening { "mic:on" } else { "mic:off" };
+    let tools_active = state
+        .tools
+        .iter()
+        .filter(|t| t.status == crate::models::ToolStatus::Running)
+        .count();
+    let tools_label = if tools_active > 0 {
+        format!("tools:{}*", tools_active)
+    } else {
+        "tools:idle".to_string()
+    };
+
+    let status_text = truncate(&state.status, area.width.saturating_sub(24) as usize);
+
+    let bar = StatusBar::new()
+        .style(Style::new().bg(Color::Rgb(8, 8, 14)).fg(Color::White))
+        .left([
+            StatusSection::new("spec-ai").style(Style::new().fg(Color::Cyan).bold()),
+            StatusSection::new("GLASS").style(Style::new().fg(Color::Magenta)),
+        ])
+        .center([StatusSection::new(status_text)])
+        .right([
+            StatusSection::new(mic).style(Style::new().fg(Color::Yellow)),
+            StatusSection::new(tools_label).style(Style::new().fg(Color::DarkGrey)),
+            StatusSection::new(format!("msgs:{}", state.messages.len()))
+                .style(Style::new().fg(Color::DarkGrey)),
+        ]);
+
+    Widget::render(&bar, area, buf);
+}
+
+fn render_glass_focus_card(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    let block = Block::bordered()
+        .title("Glasses HUD")
+        .border_style(Style::new().fg(Color::Cyan));
+    let inner = block.inner(area);
+    Widget::render(&block, area, buf);
+
+    if inner.is_empty() {
+        return;
+    }
+
+    let width = inner.width.max(1) as usize;
+    let mut y = inner.y;
+
+    let focus_line = if let Some(ref streaming) = state.streaming {
+        format!(
+            "Responding… {}",
+            truncate(streaming, width.saturating_sub(14))
+        )
+    } else if let Some(msg) = state.messages.iter().rev().find(|m| m.role == "assistant") {
+        format!(
+            "Assistant: {}",
+            truncate(&msg.content.replace('\n', " "), width.saturating_sub(12))
+        )
+    } else {
+        format!(
+            "Status: {}",
+            truncate(&state.status, width.saturating_sub(10))
+        )
+    };
+
+    for line in wrap_text(&focus_line, width, "") {
+        if y >= inner.bottom() {
+            break;
+        }
+        buf.set_string(inner.x, y, &line, Style::new().fg(Color::White).bold());
+        y += 1;
+    }
+
+    if y < inner.bottom() {
+        if let Some(msg) = state.messages.iter().rev().find(|m| m.role == "user") {
+            let user_line = format!(
+                "You: {}",
+                truncate(&msg.content.replace('\n', " "), width.saturating_sub(6))
+            );
+            for line in wrap_text(&user_line, width, "") {
+                if y >= inner.bottom() {
+                    break;
+                }
+                buf.set_string(
+                    inner.x,
+                    y,
+                    &line,
+                    Style::new().fg(Color::Rgb(170, 220, 170)),
+                );
+                y += 1;
+            }
+        }
+    }
+
+    let reasoning_lines: Vec<_> = state
+        .reasoning
+        .iter()
+        .take(2)
+        .map(|r| truncate(r, width))
+        .collect();
+    for line in reasoning_lines {
+        if y >= inner.bottom() {
+            break;
+        }
+        buf.set_string(
+            inner.x,
+            y,
+            &line,
+            Style::new().fg(Color::Rgb(120, 140, 170)),
+        );
+        y += 1;
+    }
+
+    if y < inner.bottom() {
+        let mic_line = if state.listening {
+            "Mic: live — listening for cues"
+        } else {
+            "Mic: off — tap Ctrl+A to monitor"
+        };
+        buf.set_string(
+            inner.x,
+            y,
+            &truncate(mic_line, width),
+            Style::new().fg(Color::Yellow),
+        );
+        y += 1;
+    }
+
+    if y < inner.bottom() {
+        let quick_hint = "Glance-safe: big type, few lines, no clutter";
+        buf.set_string(
+            inner.x,
+            y,
+            &truncate(quick_hint, width),
+            Style::new().fg(Color::DarkGrey),
+        );
+    }
+}
+
+fn render_glass_footer(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    let block = Block::bordered()
+        .title("Quick controls")
+        .border_style(Style::new().fg(Color::DarkGrey));
+    let inner = block.inner(area);
+    Widget::render(&block, area, buf);
+
+    if inner.is_empty() {
+        return;
+    }
+
+    let width = inner.width as usize;
+    let hints = [
+        "Ctrl+G or /glass toggles HUD",
+        "Ctrl+A mic | Ctrl+S stream | Ctrl+T processes",
+        "Designed for narrow viewports — short, high-contrast lines",
+    ];
+
+    for (i, hint) in hints.iter().enumerate() {
+        let y = inner.y + i as u16;
+        if y >= inner.bottom() {
+            break;
+        }
+        let fg = if i == 0 {
+            Color::Cyan
+        } else {
+            Color::Rgb(120, 120, 140)
+        };
+        buf.set_string(inner.x, y, &truncate(hint, width), Style::new().fg(fg));
     }
 }
 
