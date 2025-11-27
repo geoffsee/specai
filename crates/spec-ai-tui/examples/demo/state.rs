@@ -38,6 +38,14 @@ pub struct DemoState {
     /// Simulated streaming state
     pub stream_buffer: Vec<&'static str>,
     pub stream_index: usize,
+    /// Mock listening mode active
+    pub listening: bool,
+    /// Simulated listening transcript buffer
+    pub listen_buffer: Vec<&'static str>,
+    /// Current index in listening buffer
+    pub listen_index: usize,
+    /// Display buffer for recent listening lines
+    pub listen_log: Vec<String>,
     /// Agent-spawned processes
     pub processes: Vec<AgentProcess>,
     /// Show process manager overlay
@@ -74,6 +82,7 @@ impl Default for DemoState {
                 SlashCommand::new("settings", "Open settings"),
                 SlashCommand::new("theme", "Change color theme"),
                 SlashCommand::new("tools", "List available tools"),
+                SlashCommand::new("listen", "Toggle mock audio listening"),
             ],
             messages: vec![
                 ChatMessage::new("system", "Welcome to spec-ai! I'm your AI assistant.", "10:00"),
@@ -177,6 +186,16 @@ impl Default for DemoState {
                 "response!",
             ],
             stream_index: 0,
+            listening: false,
+            listen_buffer: vec![
+                "[mic] Calibrating input gain... (ok)",
+                "[mic] User: \"hey there, can you summarize the last deploy?\"",
+                "[mic] Assistant: \"Sure, checking the deploy logs now.\"",
+                "[mic] User: \"focus on API changes and DB migrations\"",
+                "[mic] (silence) listening...",
+            ],
+            listen_index: 0,
+            listen_log: Vec::new(),
             // Mock agent-spawned processes with full log output
             processes: vec![
                 {

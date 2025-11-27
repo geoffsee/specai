@@ -35,6 +35,7 @@ pub fn render(state: &DemoState, area: Rect, buf: &mut Buffer) {
     render_input(state, content_chunks[1], buf);
     render_reasoning(state, main_chunks[1], buf);
     render_status(state, main_chunks[2], buf);
+    render_listen_overlay(state, content_chunks[0], buf);
 
     if state.show_process_panel {
         render_process_overlay(state, area, buf);
@@ -223,7 +224,7 @@ fn render_input(state: &DemoState, area: Rect, buf: &mut Buffer) {
 
     // Help text at top
     let help_text = if state.editor.show_slash_menu {
-        "↑/↓: select | Enter: execute | Esc: cancel"
+        "↑/↓: select | Tab: autocomplete | Enter: execute | Esc: cancel"
     } else {
         "Ctrl+C: quit | Ctrl+L: clear | / commands | Ctrl+Z: undo | Alt+b/f: word nav"
     };
@@ -375,6 +376,55 @@ fn render_status(state: &DemoState, area: Rect, buf: &mut Buffer) {
         ]);
 
     Widget::render(&bar, area, buf);
+}
+
+fn render_listen_overlay(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    if !state.listening && state.listen_log.is_empty() {
+        return;
+    }
+
+    let max_width = area.width.min(48);
+    let min_width = 24.min(area.width);
+    let width = max_width.max(min_width);
+
+    let content_lines = state.listen_log.len().max(1);
+    let max_height = area.height.min(8);
+    let height = ((content_lines as u16) + 2).min(max_height);
+
+    let x = area
+        .right()
+        .saturating_sub(width)
+        .saturating_sub(1)
+        .max(area.x);
+    let y = area.bottom().saturating_sub(height).max(area.y);
+    let overlay_area = Rect::new(x, y, width, height);
+
+    let title = if state.listening {
+        "Listening (mock)"
+    } else {
+        "Recent audio"
+    };
+
+    let block = Block::bordered()
+        .title(title)
+        .border_style(Style::new().fg(Color::Cyan));
+    let inner = block.inner(overlay_area);
+    Widget::render(&block, overlay_area, buf);
+
+    if inner.is_empty() {
+        return;
+    }
+
+    let available_lines = inner.height as usize;
+    let start = state.listen_log.len().saturating_sub(available_lines);
+    for (i, line) in state.listen_log[start..].iter().enumerate() {
+        let y_pos = inner.y + i as u16;
+        if y_pos >= inner.bottom() {
+            break;
+        }
+        let truncated = truncate(line, inner.width as usize);
+        buf.set_string(inner.x, y_pos, &truncated, Style::new().fg(Color::White));
+    }
 }
 
 fn render_process_overlay(state: &DemoState, area: Rect, buf: &mut Buffer) {

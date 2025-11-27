@@ -5,7 +5,7 @@ use crate::state::{DemoState, Panel};
 use spec_ai_tui::{
     event::{Event, KeyCode, KeyModifiers},
     style::truncate,
-    widget::builtin::EditorAction,
+    widget::builtin::{EditorAction, Selection},
 };
 
 pub fn handle_event(event: Event, state: &mut DemoState) -> bool {
@@ -227,6 +227,11 @@ pub fn handle_event(event: Event, state: &mut DemoState) -> bool {
                         state.status = "Chat cleared".to_string();
                         return true;
                     }
+                    KeyCode::Char('a') => {
+                        // Toggle mock listening mode
+                        toggle_listening(state);
+                        return true;
+                    }
                     KeyCode::Char('r') => {
                         // Simulate tool running
                         state.tools.push(ToolExecution {
@@ -281,6 +286,19 @@ pub fn handle_event(event: Event, state: &mut DemoState) -> bool {
                         state.slash_menu.prev(count);
                         return true;
                     }
+                    KeyCode::Tab => {
+                        if complete_slash_command(state) {
+                            return true;
+                        }
+                        let count = filtered_command_count(state);
+                        state.slash_menu.next(count);
+                        return true;
+                    }
+                    KeyCode::BackTab => {
+                        let count = filtered_command_count(state);
+                        state.slash_menu.prev(count);
+                        return true;
+                    }
                     _ => {}
                 }
             }
@@ -302,6 +320,18 @@ pub fn handle_event(event: Event, state: &mut DemoState) -> bool {
                             }
                         }
                         EditorAction::Submit(text) => {
+                            // If input is a slash command, execute it directly
+                            let trimmed = text.trim();
+                            if let Some(cmd) = trimmed.strip_prefix('/') {
+                                let cmd_name = cmd.split_whitespace().next().unwrap_or("");
+                                if !cmd_name.is_empty() {
+                                    execute_slash_command(cmd_name, state);
+                                    state.editor.clear();
+                                    state.slash_menu.hide();
+                                    return true;
+                                }
+                            }
+
                             if !text.is_empty() {
                                 // Add user message
                                 let timestamp = format!(
@@ -514,6 +544,37 @@ pub fn on_tick(state: &mut DemoState) {
         }
     }
 
+    // Simulated listening (mock audio transcription)
+    if state.listening {
+        any_running = true;
+
+        if state.tick % 5 == 0 && state.listen_index < state.listen_buffer.len() {
+            let transcript = state.listen_buffer[state.listen_index];
+            state.listen_index += 1;
+
+            state.listen_log.push(transcript.to_string());
+            if state.listen_log.len() > 6 {
+                state.listen_log.remove(0);
+            }
+            state.status = "Listening (mock mic input)".to_string();
+            state.reasoning[0] = format!("{} Listening (mock)...", spin_char);
+            state.reasoning[1] = format!("  Segments captured: {}", state.listen_index);
+            state.reasoning[2] = "  /listen to stop".to_string();
+        } else if state.listen_index >= state.listen_buffer.len() {
+            state
+                .listen_log
+                .push("Listening complete. Saved mock transcripts.".to_string());
+            if state.listen_log.len() > 6 {
+                state.listen_log.remove(0);
+            }
+            stop_listening(state, "Listening complete (mock)");
+        } else {
+            state.reasoning[0] = format!("{} Listening (mock)...", spin_char);
+            state.reasoning[1] = format!("  Segments captured: {}", state.listen_index);
+            state.reasoning[2] = "  /listen to stop".to_string();
+        }
+    }
+
     // Update running process elapsed times
     let mut running_count = 0;
     for proc in &mut state.processes {
@@ -569,18 +630,73 @@ fn filtered_command_count(state: &DemoState) -> usize {
         .count()
 }
 
-fn execute_slash_command(cmd: &str, state: &mut DemoState) {
-    // Find the command that matches
+fn selected_slash_command(state: &DemoState) -> Option<String> {
     let filtered: Vec<_> = state
         .slash_commands
         .iter()
         .filter(|c| c.matches(&state.editor.slash_query))
         .collect();
 
-    let selected_cmd = filtered
+    filtered
         .get(state.slash_menu.selected_index())
-        .map(|c| c.name.as_str())
-        .unwrap_or(cmd);
+        .map(|c| c.name.clone())
+}
+
+fn complete_slash_command(state: &mut DemoState) -> bool {
+    if let Some(cmd) = selected_slash_command(state) {
+        let text = format!("/{cmd}");
+        state.editor.text = text.clone();
+        state.editor.selection = Selection::cursor(text.len());
+        state.editor.show_slash_menu = false;
+        state.editor.slash_query.clear();
+        state.slash_menu.hide();
+        state.status = format!("Prepared /{} (Enter to run, add args manually)", cmd);
+        true
+    } else {
+        false
+    }
+}
+
+fn toggle_listening(state: &mut DemoState) {
+    if state.listening {
+        stop_listening(state, "Listening stopped (mock)");
+    } else {
+        start_listening(state);
+    }
+}
+
+fn start_listening(state: &mut DemoState) {
+    state.listening = true;
+    state.listen_index = 0;
+    state.listen_log.clear();
+    state.status = "Listening (mock mic input)...".to_string();
+    state.reasoning[0] = "◇ Listening (mock mic)".to_string();
+    state.reasoning[1] = "  Capturing microphone input".to_string();
+    state.reasoning[2] = "  /listen to stop".to_string();
+
+    state
+        .listen_log
+        .push("Started mock listening session (demo only)".to_string());
+}
+
+fn stop_listening(state: &mut DemoState, status: &str) {
+    if !state.listening {
+        return;
+    }
+    state.listening = false;
+    state.listen_index = 0;
+    state.status = status.to_string();
+    state.reasoning[0] = "✓ Listening stopped".to_string();
+    state.reasoning[1] = "  Transcriptions paused".to_string();
+    state.reasoning[2] = "  Use /listen to start again".to_string();
+}
+
+fn execute_slash_command(cmd: &str, state: &mut DemoState) {
+    // Find the command that matches
+    let selected_cmd = selected_slash_command(state)
+        .as_deref()
+        .unwrap_or(cmd)
+        .to_string();
 
     let timestamp = format!(
         "{}:{:02}",
@@ -588,7 +704,7 @@ fn execute_slash_command(cmd: &str, state: &mut DemoState) {
         state.messages.len() % 60
     );
 
-    match selected_cmd {
+    match selected_cmd.as_str() {
         "help" => {
             state.messages.push(ChatMessage::new(
                 "system",
@@ -615,10 +731,11 @@ fn execute_slash_command(cmd: &str, state: &mut DemoState) {
                  │  Ctrl+H     Open session history                │\n\
                  │  Ctrl+R     Simulate tool execution             │\n\
                  │  Ctrl+S     Simulate streaming response         │\n\
+                 │  Ctrl+A     Toggle mock listening               │\n\
                  │                                                 │\n\
                  │  SLASH COMMANDS                                 │\n\
                  │  /help /clear /model /system /export            │\n\
-                 │  /settings /theme /tools                        │\n\
+                 │  /settings /theme /tools /listen                │\n\
                  │                                                 │\n\
                  ╰─────────────────────────────────────────────────╯",
                 &timestamp,
@@ -646,6 +763,9 @@ fn execute_slash_command(cmd: &str, state: &mut DemoState) {
                 &timestamp,
             ));
             state.status = "Tools listed".to_string();
+        }
+        "listen" => {
+            toggle_listening(state);
         }
         _ => {
             state.status = format!("Unknown command: /{}", selected_cmd);
