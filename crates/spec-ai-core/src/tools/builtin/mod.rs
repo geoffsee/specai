@@ -1,6 +1,7 @@
 pub mod audio_transcription;
 pub mod bash;
 pub mod calculator;
+pub mod code_search;
 pub mod echo;
 pub mod file_extract;
 pub mod file_read;
@@ -22,6 +23,7 @@ pub mod mesh_communication;
 pub use audio_transcription::AudioTranscriptionTool;
 pub use bash::BashTool;
 pub use calculator::MathTool;
+pub use code_search::CodeSearchTool;
 pub use echo::EchoTool;
 pub use file_extract::FileExtractTool;
 pub use file_read::FileReadTool;

@@ -94,11 +94,7 @@ impl PluginLoader {
                 Ok(tool_count) => {
                     stats.loaded += 1;
                     stats.tools_loaded += tool_count;
-                    info!(
-                        "Loaded plugin: {} ({} tools)",
-                        path.display(),
-                        tool_count
-                    );
+                    info!("Loaded plugin: {} ({} tools)", path.display(), tool_count);
                 }
                 Err(e) => {
                     stats.failed += 1;
@@ -115,10 +111,11 @@ impl PluginLoader {
         debug!("Loading plugin from: {}", path.display());
 
         // Load the root module using abi_stable
-        let module = PluginModuleRef::load_from_file(path).map_err(|e| PluginError::LoadFailed {
-            path: path.to_path_buf(),
-            message: e.to_string(),
-        })?;
+        let module =
+            PluginModuleRef::load_from_file(path).map_err(|e| PluginError::LoadFailed {
+                path: path.to_path_buf(),
+                message: e.to_string(),
+            })?;
 
         // Check API version compatibility
         let plugin_version = (module.api_version())();
@@ -200,9 +197,9 @@ impl PluginLoader {
 
     /// Get all tools from all loaded plugins as an iterator
     pub fn all_tools(&self) -> impl Iterator<Item = (PluginToolRef, &str)> {
-        self.plugins.iter().flat_map(|p| {
-            p.tools.iter().map(move |t| (*t, p.name.as_str()))
-        })
+        self.plugins
+            .iter()
+            .flat_map(|p| p.tools.iter().map(move |t| (*t, p.name.as_str())))
     }
 
     /// Get the number of loaded plugins

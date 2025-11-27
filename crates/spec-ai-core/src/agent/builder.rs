@@ -175,10 +175,7 @@ impl AgentBuilder {
                                 );
                             }
                             if stats.failed > 0 {
-                                warn!(
-                                    "{} plugins failed to load",
-                                    stats.failed
-                                );
+                                warn!("{} plugins failed to load", stats.failed);
                             }
                         }
                         Err(e) => {

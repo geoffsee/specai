@@ -302,8 +302,7 @@ if let json = try? encoder.encode(result), let jsonString = String(data: json, e
             // Write Swift script to temp file
             let temp_dir = std::env::temp_dir();
             let script_path = temp_dir.join("spec_ai_extractor.swift");
-            fs::write(&script_path, &script)
-                .context("Failed to write Swift extractor script")?;
+            fs::write(&script_path, &script).context("Failed to write Swift extractor script")?;
 
             // Build arguments
             let mut args = vec![script_path.to_string_lossy().to_string(), path.clone()];
@@ -324,8 +323,8 @@ if let json = try? encoder.encode(result), let jsonString = String(data: json, e
             }
 
             let stdout = String::from_utf8_lossy(&output.stdout);
-            let result: SwiftResult = serde_json::from_str(&stdout)
-                .context("Failed to parse Swift output")?;
+            let result: SwiftResult =
+                serde_json::from_str(&stdout).context("Failed to parse Swift output")?;
 
             if let Some(error) = result.error {
                 return Err(anyhow!("Extraction error: {}", error));

@@ -10,8 +10,8 @@ use std::sync::Arc;
 use tracing::debug;
 
 use self::builtin::{
-    AudioTranscriptionTool, BashTool, EchoTool, FileExtractTool, FileReadTool, FileWriteTool,
-    GraphTool, MathTool, PromptUserTool, SearchTool, ShellTool,
+    AudioTranscriptionTool, BashTool, CodeSearchTool, EchoTool, FileExtractTool, FileReadTool,
+    FileWriteTool, GraphTool, MathTool, PromptUserTool, SearchTool, ShellTool,
 };
 
 #[cfg(feature = "api")]
@@ -106,6 +106,7 @@ impl ToolRegistry {
         registry.register(Arc::new(FileWriteTool::new()));
         registry.register(Arc::new(PromptUserTool::new()));
         registry.register(Arc::new(SearchTool::new()));
+        registry.register(Arc::new(CodeSearchTool::new()));
         registry.register(Arc::new(BashTool::new()));
         registry.register(Arc::new(ShellTool::new()));
 
@@ -212,7 +213,11 @@ impl ToolRegistry {
             let adapter = match PluginToolAdapter::new(tool_ref, plugin_name) {
                 Ok(a) => a,
                 Err(e) => {
-                    tracing::warn!("Failed to create adapter for tool from {}: {}", plugin_name, e);
+                    tracing::warn!(
+                        "Failed to create adapter for tool from {}: {}",
+                        plugin_name,
+                        e
+                    );
                     continue;
                 }
             };

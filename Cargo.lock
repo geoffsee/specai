@@ -6642,9 +6642,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "toak-rs"
-version = "4.0.8"
+version = "4.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e460adf46522ec54de3a161bf9036c2219c180637cf3d49f8a71888aee723572"
+checksum = "41f26f7947c771662b6104e0efc39d5292a6e6343fb7a99debd3fa1fb9ec610a"
 dependencies = [
  "anyhow",
  "chrono",

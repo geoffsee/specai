@@ -1,13 +1,15 @@
-use crate::bootstrap_self::plugin::{BootstrapPlugin, PluginContext, PluginOutcome};
+use crate::bootstrap_self::plugin::{BootstrapMode, BootstrapPlugin, PluginContext, PluginOutcome};
 use crate::types::{EdgeType, NodeType};
 use anyhow::{Context, Result};
 use blake3::Hasher;
 use serde_json::json;
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use toak_rs::{clean_and_redact, count_tokens};
+use toak_rs::{clean_and_redact, count_tokens, JsonDatabaseGenerator, JsonDatabaseOptions};
+use tokio::runtime::Builder as RuntimeBuilder;
 use walkdir::WalkDir;
 
 const MAX_FILES_ANALYZED: usize = 200;
@@ -38,6 +40,7 @@ static BOOTSTRAP_PHASES: &[&str] = &[
     "Discover tracked files for tokenization",
     "Clean and redact content using toak-rs helpers",
     "Summarize token footprint and link graph nodes",
+    "Generate embeddings database for semantic search",
 ];
 
 pub struct ToakTokenizerPlugin;
@@ -62,6 +65,15 @@ impl BootstrapPlugin for ToakTokenizerPlugin {
         let tracked_files = self.tracked_files(context.repo_root)?;
         let summary = self.analyze_files(&context, &tracked_files)?;
 
+        let (embeddings_path, embeddings_cached) =
+            match self.generate_embeddings_database(&context, &tracked_files) {
+                Ok(res) => res,
+                Err(err) => {
+                    tracing::warn!("toak-tokenizer: embeddings generation skipped: {err:#}");
+                    (None, false)
+                }
+            };
+
         let repository_name = context
             .repo_root
             .file_name()
@@ -83,6 +95,11 @@ impl BootstrapPlugin for ToakTokenizerPlugin {
                 "cleaned_token_total": summary.total_cleaned_tokens,
                 "cached_reused": summary.cached_hits,
             },
+            "embeddings_path": embeddings_path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+            "embeddings_cached": embeddings_cached,
         });
 
         let repo_node_id = context.persistence.insert_graph_node(
@@ -192,6 +209,8 @@ impl BootstrapPlugin for ToakTokenizerPlugin {
             "document_count": 0,
             "tokenized_files": summary.files_analyzed(),
             "cached_files": summary.cached_hits,
+            "embeddings_path": embeddings_path.as_ref().map(|p| p.display().to_string()),
+            "embeddings_cached": embeddings_cached,
         });
 
         Ok(outcome)
@@ -388,6 +407,72 @@ impl ToakTokenizerPlugin {
             .to_string_lossy()
             .to_string()
     }
+
+    fn generate_embeddings_database(
+        &self,
+        context: &PluginContext,
+        tracked_files: &[PathBuf],
+    ) -> Result<(Option<PathBuf>, bool)> {
+        let root = context.repo_root;
+
+        if !root.exists() || tracked_files.is_empty() {
+            return Ok((None, false));
+        }
+
+        let embeddings_path = embeddings_output_path(root);
+        let existing_valid = embeddings_path
+            .metadata()
+            .map(|m| m.len() > 0)
+            .unwrap_or(false);
+
+        if existing_valid && !matches!(context.mode, BootstrapMode::Refresh) {
+            return Ok((Some(embeddings_path), true));
+        }
+
+        if let Some(parent) = embeddings_path.parent() {
+            fs::create_dir_all(parent).context("creating embeddings cache directory")?;
+        }
+
+        let mut file_type_exclusions = HashSet::new();
+        for ext in BINARY_EXTENSIONS {
+            file_type_exclusions.insert(format!(".{}", ext));
+        }
+
+        let mut file_exclusions = Vec::new();
+        for dir in IGNORED_DIRS {
+            file_exclusions.push(format!("{dir}/**"));
+            file_exclusions.push(format!("**/{dir}/**"));
+        }
+
+        let options = JsonDatabaseOptions {
+            dir: root.clone(),
+            output_file_path: embeddings_path.clone(),
+            file_type_exclusions,
+            file_exclusions,
+            verbose: false,
+            chunker_config: Default::default(),
+            max_concurrent_files: 4,
+        };
+
+        let generator = JsonDatabaseGenerator::new(options)
+            .context("initializing toak embeddings generator")?;
+
+        let rt = RuntimeBuilder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("creating tokio runtime for embeddings generation")?;
+
+        rt.block_on(generator.generate_database())
+            .context("generating embeddings database")?;
+
+        Ok((Some(embeddings_path), false))
+    }
+}
+
+fn embeddings_output_path(repo_root: &Path) -> PathBuf {
+    repo_root
+        .join(".spec-ai")
+        .join("code_search_embeddings.json")
 }
 
 #[derive(Clone, Default)]

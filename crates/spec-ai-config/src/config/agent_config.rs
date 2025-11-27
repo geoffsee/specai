@@ -11,10 +11,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Embedded default configuration file
-const DEFAULT_CONFIG: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/spec-ai.config.toml"
-));
+const DEFAULT_CONFIG: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/spec-ai.config.toml"));
 
 /// Configuration file name
 const CONFIG_FILE_NAME: &str = "spec-ai.config.toml";
