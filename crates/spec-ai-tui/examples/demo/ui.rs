@@ -49,13 +49,13 @@ pub fn render(state: &DemoState, area: Rect, buf: &mut Buffer) {
 
 fn render_chat(state: &DemoState, area: Rect, buf: &mut Buffer) {
     // Draw border
-    let border_style = if state.focus == Panel::Chat {
+    let border_style = if state.focus == Panel::Agent {
         Style::new().fg(Color::Cyan)
     } else {
         Style::new().fg(Color::DarkGrey)
     };
 
-    let block = Block::bordered().title("Chat").border_style(border_style);
+    let block = Block::bordered().title("Agent").border_style(border_style);
     Widget::render(&block, area, buf);
 
     let inner = block.inner(area);
@@ -118,7 +118,13 @@ fn render_chat(state: &DemoState, area: Rect, buf: &mut Buffer) {
         };
         let prefix = if is_tool { "  │ " } else { "  " };
 
-        for content_line in msg.content.lines() {
+        let content_to_render = if is_tool {
+            condensed_tool_summary(&msg.content, content_width)
+        } else {
+            msg.content.clone()
+        };
+
+        for content_line in content_to_render.lines() {
             let prefixed = format!("{}{}", prefix, content_line);
             let wrapped = wrap_text(&prefixed, content_width, prefix);
             for wrapped_line in wrapped {
@@ -274,6 +280,34 @@ fn render_input(state: &DemoState, area: Rect, buf: &mut Buffer) {
             menu_state.visible = true;
             menu.render(menu_area, buf, &mut menu_state);
         }
+    }
+}
+
+fn condensed_tool_summary(content: &str, content_width: usize) -> String {
+    let summary_width = content_width.max(40).min(200);
+    let mut lines: Vec<&str> = content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    if lines.is_empty() {
+        return truncate(content, summary_width);
+    }
+
+    let extra_lines = lines.len().saturating_sub(3);
+    lines.truncate(3);
+
+    let mut summary = lines.join(" • ");
+    if extra_lines > 0 {
+        summary.push_str(&format!(" ... (+{} more)", extra_lines));
+    }
+
+    let condensed = truncate(&summary, summary_width);
+    if condensed != summary {
+        truncate(&format!("{} (condensed)", condensed), summary_width)
+    } else {
+        condensed
     }
 }
 

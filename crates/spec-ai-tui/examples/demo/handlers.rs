@@ -341,7 +341,7 @@ pub fn handle_event(event: Event, state: &mut DemoState) -> bool {
                             match key.code {
                                 KeyCode::Up if !state.editor.show_slash_menu => {
                                     // Switch to chat panel
-                                    state.focus = Panel::Chat;
+                                    state.focus = Panel::Agent;
                                     state.editor.focused = false;
                                 }
                                 KeyCode::PageUp => {
@@ -355,7 +355,7 @@ pub fn handle_event(event: Event, state: &mut DemoState) -> bool {
                         }
                     }
                 }
-                Panel::Chat => {
+                Panel::Agent => {
                     match key.code {
                         KeyCode::Tab => {
                             // Tab always switches to input
@@ -478,6 +478,34 @@ pub fn on_tick(state: &mut DemoState) {
                 state.reasoning[0] = format!("✓ {} completed", tool.name);
                 state.reasoning[1] = format!("  Duration: {}ms", tool.duration_ms.unwrap());
                 state.status = "Ready".to_string();
+
+                // Emit condensed tool result into chat
+                let timestamp = format!(
+                    "{}:{:02}",
+                    10 + state.messages.len() / 60,
+                    state.messages.len() % 60
+                );
+                let content = match tool.name.as_str() {
+                    "code_search" => {
+                        "Searching for: \"fn main\" in workspace\n\
+                         Found 3 results:\n\
+                         → crates/spec-ai-tui/examples/demo.rs: async fn main()\n\
+                         → crates/spec-ai-cli/src/main.rs: fn main()\n\
+                         → crates/spec-ai-api/src/lib.rs: pub fn run()\n\
+                         Showing top matches..."
+                    }
+                    "file_read" => {
+                        "Reading: crates/spec-ai-tui/src/lib.rs (first 40 lines)\n\
+                         use spec_ai_tui::app::App;\n\
+                         use spec_ai_tui::buffer::Buffer;\n\
+                         use spec_ai_tui::geometry::Rect;\n\
+                         pub struct DemoApp; ..."
+                    }
+                    _ => "Tool execution finished successfully.",
+                };
+                state
+                    .messages
+                    .push(ChatMessage::tool(&tool.name, content, &timestamp));
             } else {
                 state.reasoning[0] = format!("{} Running {}...", spin_char, tool.name);
                 state.reasoning[1] = format!("  Elapsed: {}ms", tool.duration_ms.unwrap());

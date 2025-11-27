@@ -6,7 +6,7 @@ use spec_ai_tui::widget::builtin::{EditorState, SlashCommand, SlashMenuState};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Panel {
     Input,
-    Chat,
+    Agent,
 }
 
 /// Demo application state
