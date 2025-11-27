@@ -7,6 +7,7 @@ members = [
     "crates/spec-ai-api",
     "crates/spec-ai-cli",
     "crates/spec-ai-plugin",
+    "crates/spec-ai-tui",
 ]
 default-members = ["crates/spec-ai"]
 resolver = "2"

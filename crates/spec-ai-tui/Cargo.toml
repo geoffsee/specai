@@ -1,0 +1,16 @@
+[package]
+name = "spec-ai-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Terminal User Interface for spec-ai built from scratch on crossterm"
+
+[dependencies]
+crossterm = { workspace = true, features = ["event-stream"] }
+tokio = { workspace = true }
+futures = { workspace = true }
+unicode-width = "0.2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
