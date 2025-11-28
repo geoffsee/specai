@@ -33,6 +33,7 @@ The crate supports multiple LLM providers and capabilities through feature flags
 
 This crate depends on:
 - `spec-ai-config` - Configuration management
+- `spec-ai-knowledge-graph` - Knowledge graph storage and types
 - `spec-ai-policy` - Policy enforcement
 
 ## Platform-Specific Behavior

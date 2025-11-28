@@ -27,13 +27,14 @@ Example code demonstrating various features can be found in `examples/code/`.
 
 ```
 crates/
-├── spec-ai-cli/        # Binary crate (user-facing CLI / REPL)
-├── spec-ai-core/       # Agent runtime, tools, embeddings, CLI helpers
-├── spec-ai-config/     # Config models, persistence layer, shared types
-├── spec-ai-policy/     # Policy engine and plugin system
-├── spec-ai-plugin/     # Custom tool plugin system (dynamic library loading)
-├── spec-ai-api/        # HTTP/mesh server and sync coordinator
-└── spec-ai/            # Public library crate re-exporting the pieces above
+├── spec-ai-cli/            # Binary crate (user-facing CLI / REPL)
+├── spec-ai-core/           # Agent runtime, tools, embeddings, CLI helpers
+├── spec-ai-config/         # Config models, persistence layer, shared types
+├── spec-ai-knowledge-graph/ # Knowledge graph storage, vector clocks, types
+├── spec-ai-policy/         # Policy engine and plugin system
+├── spec-ai-plugin/         # Custom tool plugin system (dynamic library loading)
+├── spec-ai-api/            # HTTP/mesh server and sync coordinator
+└── spec-ai/                # Public library crate re-exporting the pieces above
 
 docs/, examples/, specs/, etc.
 ```

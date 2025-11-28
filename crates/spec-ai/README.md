@@ -37,7 +37,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spec-ai = "0.4"
+spec-ai = "0.5"
 ```
 
 Or install the CLI:
@@ -77,6 +77,7 @@ This crate re-exports functionality from:
 
 - **spec-ai-core** - Agent runtime, tools, embeddings
 - **spec-ai-config** - Configuration management and persistence
+- **spec-ai-knowledge-graph** - Knowledge graph storage, vector clocks, types
 - **spec-ai-policy** - Policy engine and plugin system
 - **spec-ai-api** - HTTP API server
 - **spec-ai-cli** - Command-line interface

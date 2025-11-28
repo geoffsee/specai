@@ -511,10 +511,11 @@ impl SyncEngine {
     // Helper methods for converting between record types
 
     fn node_record_to_synced(&self, record: SyncedNodeRecord) -> SyncedNode {
+        use spec_ai_knowledge_graph::NodeType;
         SyncedNode {
             id: record.id,
             session_id: record.session_id,
-            node_type: crate::types::NodeType::from_str(&record.node_type),
+            node_type: NodeType::from_str(&record.node_type),
             label: record.label,
             properties: record.properties,
             embedding_id: record.embedding_id,
@@ -528,12 +529,13 @@ impl SyncEngine {
     }
 
     fn edge_record_to_synced(&self, record: SyncedEdgeRecord) -> SyncedEdge {
+        use spec_ai_knowledge_graph::EdgeType;
         SyncedEdge {
             id: record.id,
             session_id: record.session_id,
             source_id: record.source_id,
             target_id: record.target_id,
-            edge_type: crate::types::EdgeType::from_str(&record.edge_type),
+            edge_type: EdgeType::from_str(&record.edge_type),
             predicate: record.predicate,
             properties: record.properties,
             weight: record.weight,
@@ -580,7 +582,7 @@ impl SyncEngine {
     }
 
     fn insert_node_from_synced(&self, node: &SyncedNode) -> Result<()> {
-        // Insert the node first
+        // Insert the node first using knowledge-graph types
         let node_id = self.persistence.insert_graph_node(
             &node.session_id,
             node.node_type.clone(),
@@ -604,7 +606,7 @@ impl SyncEngine {
     }
 
     fn insert_edge_from_synced(&self, edge: &SyncedEdge) -> Result<()> {
-        // Insert the edge first
+        // Insert the edge first using knowledge-graph types
         let edge_id = self.persistence.insert_graph_edge(
             &edge.session_id,
             edge.source_id,

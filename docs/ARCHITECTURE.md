@@ -112,7 +112,7 @@ Multi-provider support:
 
 ### Knowledge & Memory
 - **Embeddings Service**: Vector generation for semantic search
-- **Knowledge Graph**: GraphNodes and GraphEdges for relationship tracking
+- **Knowledge Graph** (`spec-ai-knowledge-graph`): Isolated crate for graph storage, vector clocks, and graph types (GraphNodes, GraphEdges) for relationship tracking
 
 ### Distributed Coordination & Sync
 - **Mesh Registry & Messaging**: Agents register, exchange heartbeats, and route inter-agent messages (task delegation, notifications, sync triggers) via the mesh API and tooling (`crates/spec-ai-api/src/api/mesh.rs`, `crates/spec-ai-core/src/tools/builtin/mesh_communication.rs`).

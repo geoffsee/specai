@@ -726,5 +726,5 @@ All features are verified working when:
 
 ---
 
-**Last Updated:** 2025-01-19
-**Spec-AI Version:** 0.1.24
+**Last Updated:** 2025-11-28
+**Spec-AI Version:** 0.5.0

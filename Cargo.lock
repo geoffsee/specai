@@ -5782,7 +5782,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai"
-version = "0.4.16"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "spec-ai-api",
@@ -5794,7 +5794,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai-api"
-version = "0.4.16"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -5819,7 +5819,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai-cli"
-version = "0.4.16"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5837,7 +5837,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai-config"
-version = "0.4.16"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5849,6 +5849,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "spec-ai-knowledge-graph",
  "tempfile",
  "thiserror 1.0.69",
  "toml",
@@ -5859,7 +5860,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai-core"
-version = "0.4.16"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-openai",
@@ -5880,6 +5881,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spec-ai-config",
+ "spec-ai-knowledge-graph",
  "spec-ai-plugin",
  "spec-ai-policy",
  "spider",
@@ -5898,8 +5900,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "spec-ai-knowledge-graph"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "duckdb",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "spec-ai-plugin"
-version = "0.4.16"
+version = "0.5.0"
 dependencies = [
  "abi_stable",
  "anyhow",
@@ -5913,7 +5926,7 @@ dependencies = [
 
 [[package]]
 name = "spec-ai-policy"
-version = "0.4.16"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
