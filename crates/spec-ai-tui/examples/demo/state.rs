@@ -9,6 +9,12 @@ pub enum Panel {
     Agent,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayMode {
+    Standard,
+    GlassesHud,
+}
+
 /// Demo application state
 pub struct DemoState {
     /// Editor field state
@@ -66,6 +72,8 @@ pub struct DemoState {
     pub selected_session: usize,
     /// Pending quit (first Ctrl+C pressed)
     pub pending_quit: bool,
+    /// Display mode (standard vs glasses HUD)
+    pub display_mode: DisplayMode,
 }
 
 impl Default for DemoState {
@@ -83,6 +91,7 @@ impl Default for DemoState {
                 SlashCommand::new("theme", "Change color theme"),
                 SlashCommand::new("tools", "List available tools"),
                 SlashCommand::new("listen", "Toggle mock audio listening"),
+                SlashCommand::new("glass", "Toggle glasses-optimized HUD"),
             ],
             messages: vec![
                 ChatMessage::new("system", "Welcome to spec-ai! I'm your AI assistant.", "10:00"),
@@ -354,6 +363,7 @@ impl Default for DemoState {
             show_history: false,
             selected_session: 0,
             pending_quit: false,
+            display_mode: DisplayMode::Standard,
         }
     }
 }

@@ -1,7 +1,7 @@
 //! Event handling and tick logic for the demo app.
 
 use crate::models::{ChatMessage, ProcessStatus, ToolExecution, ToolStatus};
-use crate::state::{DemoState, Panel};
+use crate::state::{DemoState, DisplayMode, Panel};
 use spec_ai_tui::{
     event::{Event, KeyCode, KeyModifiers},
     style::truncate,
@@ -230,6 +230,11 @@ pub fn handle_event(event: Event, state: &mut DemoState) -> bool {
                     KeyCode::Char('a') => {
                         // Toggle mock listening mode
                         toggle_listening(state);
+                        return true;
+                    }
+                    KeyCode::Char('g') => {
+                        // Toggle glasses-friendly HUD mode
+                        toggle_glass_mode(state);
                         return true;
                     }
                     KeyCode::Char('r') => {
@@ -767,8 +772,23 @@ fn execute_slash_command(cmd: &str, state: &mut DemoState) {
         "listen" => {
             toggle_listening(state);
         }
+        "glass" => {
+            toggle_glass_mode(state);
+        }
         _ => {
             state.status = format!("Unknown command: /{}", selected_cmd);
         }
     }
+}
+
+fn toggle_glass_mode(state: &mut DemoState) {
+    state.display_mode = match state.display_mode {
+        DisplayMode::Standard => DisplayMode::GlassesHud,
+        DisplayMode::GlassesHud => DisplayMode::Standard,
+    };
+    let label = match state.display_mode {
+        DisplayMode::Standard => "Standard layout",
+        DisplayMode::GlassesHud => "Glasses HUD mode",
+    };
+    state.status = format!("Display: {}", label);
 }

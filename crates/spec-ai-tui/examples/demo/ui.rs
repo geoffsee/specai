@@ -1,7 +1,7 @@
 //! Rendering routines for the demo application.
 
 use crate::models::ProcessStatus;
-use crate::state::{DemoState, Panel};
+use crate::state::{DemoState, DisplayMode, Panel};
 use spec_ai_tui::{
     buffer::Buffer,
     geometry::Rect,
@@ -14,6 +14,22 @@ use spec_ai_tui::{
 };
 
 pub fn render(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    if state.display_mode == DisplayMode::GlassesHud {
+        render_glass_mode(state, area, buf);
+
+        // Keep overlays available even in HUD mode for debugging/demo parity.
+        if state.show_process_panel {
+            render_process_overlay(state, area, buf);
+        }
+        if state.show_history {
+            render_history_overlay(state, area, buf);
+        }
+        if state.viewing_logs.is_some() {
+            render_log_overlay(state, area, buf);
+        }
+        return;
+    }
+
     // Main layout: content + status
     let main_chunks = Layout::vertical()
         .constraints([
@@ -45,6 +61,470 @@ pub fn render(state: &DemoState, area: Rect, buf: &mut Buffer) {
     }
     if state.viewing_logs.is_some() {
         render_log_overlay(state, area, buf);
+    }
+}
+
+fn render_glass_mode(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    // Transparent background - no fill, just render content directly
+    // This is glass - we see through it
+
+    let chunks = Layout::vertical()
+        .constraints([
+            Constraint::Fixed(1), // Header: GLASS + status
+            Constraint::Fill(1),  // Content area
+            Constraint::Fixed(1), // Footer: quick controls hint
+        ])
+        .split(area);
+
+    render_glass_header(state, chunks[0], buf);
+    render_glass_content(state, chunks[1], buf);
+    render_glass_footer_minimal(state, chunks[2], buf);
+
+    // Torus as ambient presence indicator - upper right, near status
+    render_glass_torus_overlay(state, area, buf);
+}
+
+/// Clean header: "GLASS" on left, status indicators on right
+fn render_glass_header(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    // "GLASS" label on left
+    buf.set_string(
+        area.x + 1,
+        area.y,
+        "SPEC-AI",
+        Style::new().fg(Color::White).bold(),
+    );
+
+    // Status indicators on right
+    let mic_icon = if state.listening { "●" } else { "○" };
+    let mic_color = if state.listening {
+        Color::Green
+    } else {
+        Color::Rgb(80, 80, 80)
+    };
+
+    let tools_active = state
+        .tools
+        .iter()
+        .filter(|t| t.status == crate::models::ToolStatus::Running)
+        .count();
+
+    let status_text = if tools_active > 0 {
+        format!("{}  ⚡{}", mic_icon, tools_active)
+    } else {
+        format!("{}  ◇", mic_icon)
+    };
+
+    let status_width = status_text.chars().count() as u16;
+    buf.set_string(
+        area.right().saturating_sub(status_width + 2),
+        area.y,
+        &mic_icon.to_string(),
+        Style::new().fg(mic_color),
+    );
+
+    if tools_active > 0 {
+        buf.set_string(
+            area.right().saturating_sub(status_width - 2),
+            area.y,
+            &format!("⚡{}", tools_active),
+            Style::new().fg(Color::Yellow),
+        );
+    }
+}
+
+/// Borderless content area - minimal by default, shows dialog only when streaming
+fn render_glass_content(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    if area.is_empty() {
+        return;
+    }
+
+    // Reserve right side for torus (30 chars)
+    let content_width = area.width.saturating_sub(32) as usize;
+    let mut y = area.y + 1; // Small top margin
+
+    // Only show content when there's active streaming or reasoning
+    // Otherwise, glass mode stays minimal - just the torus as ambient presence
+    let is_active = state.streaming.is_some() || !state.reasoning.is_empty();
+
+    if !is_active {
+        // Minimal mode - just a subtle status hint
+        buf.set_string(
+            area.x + 2,
+            y,
+            "Ready",
+            Style::new().fg(Color::Rgb(60, 60, 70)),
+        );
+        return;
+    }
+
+    // Active mode - show streaming content
+    if let Some(ref streaming) = state.streaming {
+        let focus_line = format!("→ {}", truncate(streaming, content_width.saturating_sub(4)));
+
+        for line in wrap_text(&focus_line, content_width, "") {
+            if y >= area.bottom().saturating_sub(2) {
+                break;
+            }
+            buf.set_string(area.x + 2, y, &line, Style::new().fg(Color::White).bold());
+            y += 1;
+        }
+
+        y += 1;
+
+        // Show user's question that triggered this response
+        if let Some(msg) = state.messages.iter().rev().find(|m| m.role == "user") {
+            let user_line = format!(
+                "You: {}",
+                truncate(&msg.content.replace('\n', " "), content_width.saturating_sub(6))
+            );
+            buf.set_string(
+                area.x + 2,
+                y,
+                &truncate(&user_line, content_width),
+                Style::new().fg(Color::Rgb(100, 100, 100)),
+            );
+            y += 1;
+        }
+    }
+
+    // Show reasoning/thinking indicator when active
+    if !state.reasoning.is_empty() {
+        if y < area.bottom().saturating_sub(2) {
+            if state.streaming.is_some() {
+                y += 1; // Add spacing if we also have streaming content
+            }
+            if let Some(reason) = state.reasoning.first() {
+                buf.set_string(
+                    area.x + 2,
+                    y,
+                    &truncate(reason, content_width),
+                    Style::new().fg(Color::Rgb(80, 100, 120)),
+                );
+            }
+        }
+    }
+}
+
+/// Minimal footer - just a single line hint
+fn render_glass_footer_minimal(_state: &DemoState, area: Rect, buf: &mut Buffer) {
+    let hint = "QUICK CONTROLS  Ctrl+G toggle │ Ctrl+A mic │ Ctrl+S stream";
+    buf.set_string(
+        area.x + 1,
+        area.y,
+        &truncate(hint, area.width.saturating_sub(2) as usize),
+        Style::new().fg(Color::Rgb(60, 60, 70)),
+    );
+}
+
+/// Renders the torus as an ambient presence indicator on the right side.
+fn render_glass_torus_overlay(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    // Size tuned for braille resolution
+    let torus_width: u16 = 28;
+    let torus_height: u16 = 12;
+
+    // Position: right side of content area, vertically centered
+    let margin = 2_u16;
+    let x = area.right().saturating_sub(torus_width + margin);
+    // Center vertically in the content area (skip header line)
+    let content_height = area.height.saturating_sub(2); // header + footer
+    let y = area.y + 1 + content_height.saturating_sub(torus_height) / 2;
+
+    if x < area.x || y < area.y || y + torus_height > area.bottom() {
+        return;
+    }
+
+    let torus_area = Rect::new(x, y, torus_width, torus_height);
+    render_torus(state, torus_area, buf);
+}
+
+/// Core torus rendering using braille characters for 8x resolution.
+/// Each braille character is a 2x4 grid of dots, giving much smoother curves.
+fn render_torus(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    if area.width < 8 || area.height < 4 {
+        return;
+    }
+
+    let char_width = area.width as usize;
+    let char_height = area.height as usize;
+
+    // Braille gives us 2x horizontal and 4x vertical resolution
+    let pixel_width = char_width * 2;
+    let pixel_height = char_height * 4;
+
+    // Torus parameters
+    let r1: f32 = 1.0; // Tube radius
+    let r2: f32 = 2.0; // Torus radius
+    let k1: f32 = (pixel_height as f32) * 0.7; // Scale factor
+
+    // Animation: rotation based on tick
+    let speed_mult = if state.streaming.is_some() { 0.15 } else { 0.03 };
+    let a = (state.tick as f32) * speed_mult;
+    let b = (state.tick as f32) * speed_mult * 0.6;
+
+    let (sin_a, cos_a) = a.sin_cos();
+    let (sin_b, cos_b) = b.sin_cos();
+
+    // High-res z-buffer and luminance buffer
+    let mut z_buffer = vec![0.0_f32; pixel_width * pixel_height];
+    let mut lum_buffer = vec![-2.0_f32; pixel_width * pixel_height]; // -2 = empty
+
+    // Sample the torus surface densely for solid braille fill
+    let theta_steps = 314;
+    let phi_steps = 157;
+
+    for i in 0..theta_steps {
+        let theta = (i as f32) * 2.0 * std::f32::consts::PI / (theta_steps as f32);
+        let (sin_theta, cos_theta) = theta.sin_cos();
+
+        for j in 0..phi_steps {
+            let phi = (j as f32) * 2.0 * std::f32::consts::PI / (phi_steps as f32);
+            let (sin_phi, cos_phi) = phi.sin_cos();
+
+            let circle_x = r2 + r1 * cos_theta;
+            let circle_y = r1 * sin_theta;
+
+            let x = circle_x * (cos_b * cos_phi + sin_a * sin_b * sin_phi)
+                - circle_y * cos_a * sin_b;
+            let y = circle_x * (sin_b * cos_phi - sin_a * cos_b * sin_phi)
+                + circle_y * cos_a * cos_b;
+            let z = cos_a * circle_x * sin_phi + circle_y * sin_a;
+
+            let distance = 5.0;
+            let ooz = 1.0 / (z + distance);
+
+            // Project to pixel coordinates
+            let xp = (pixel_width as f32 / 2.0 + k1 * ooz * x * 0.5) as i32;
+            let yp = (pixel_height as f32 / 2.0 - k1 * ooz * y * 0.5) as i32;
+
+            if xp >= 0 && xp < pixel_width as i32 && yp >= 0 && yp < pixel_height as i32 {
+                let idx = yp as usize * pixel_width + xp as usize;
+
+                let luminance = cos_phi * cos_theta * sin_b
+                    - cos_a * cos_theta * sin_phi
+                    - sin_a * sin_theta
+                    + cos_b * (cos_a * sin_theta - cos_theta * sin_a * sin_phi);
+
+                if ooz > z_buffer[idx] {
+                    z_buffer[idx] = ooz;
+                    lum_buffer[idx] = luminance;
+                }
+            }
+        }
+    }
+
+    // Convert pixel buffer to braille characters
+    // Braille dot positions in a 2x4 cell:
+    //   0 3
+    //   1 4
+    //   2 5
+    //   6 7
+    let dot_bits: [u8; 8] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80];
+
+    let is_active = state.streaming.is_some();
+
+    for cy in 0..char_height {
+        for cx in 0..char_width {
+            let mut braille: u8 = 0;
+            let mut max_lum: f32 = -2.0;
+            let mut has_pixel = false;
+
+            // Check each of the 8 dots in this braille cell
+            for dot in 0..8 {
+                let (dx, dy) = match dot {
+                    0 => (0, 0),
+                    1 => (0, 1),
+                    2 => (0, 2),
+                    3 => (1, 0),
+                    4 => (1, 1),
+                    5 => (1, 2),
+                    6 => (0, 3),
+                    7 => (1, 3),
+                    _ => unreachable!(),
+                };
+
+                let px = cx * 2 + dx;
+                let py = cy * 4 + dy;
+
+                if px < pixel_width && py < pixel_height {
+                    let idx = py * pixel_width + px;
+                    let lum = lum_buffer[idx];
+                    if lum > -1.5 {
+                        // Has a pixel here
+                        braille |= dot_bits[dot];
+                        has_pixel = true;
+                        if lum > max_lum {
+                            max_lum = lum;
+                        }
+                    }
+                }
+            }
+
+            if has_pixel {
+                // Convert to braille unicode (U+2800 + pattern)
+                let braille_char = char::from_u32(0x2800 + braille as u32).unwrap_or(' ');
+
+                // Color based on luminance and activity
+                let color = if is_active {
+                    if max_lum > 0.4 {
+                        Color::Rgb(255, 230, 180) // Warm bright
+                    } else if max_lum > 0.0 {
+                        Color::Rgb(220, 180, 120) // Warm mid
+                    } else {
+                        Color::Rgb(140, 100, 60) // Warm dark
+                    }
+                } else if max_lum > 0.4 {
+                    Color::Rgb(160, 220, 240) // Cool bright
+                } else if max_lum > 0.0 {
+                    Color::Rgb(80, 150, 180) // Cool mid
+                } else {
+                    Color::Rgb(40, 80, 110) // Cool dark
+                };
+
+                buf.set_string(
+                    area.x + cx as u16,
+                    area.y + cy as u16,
+                    &braille_char.to_string(),
+                    Style::new().fg(color),
+                );
+            }
+        }
+    }
+}
+
+fn render_glass_focus_card(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    let block = Block::bordered()
+        .title("Glasses HUD")
+        .border_style(Style::new().fg(Color::Cyan));
+    let inner = block.inner(area);
+    Widget::render(&block, area, buf);
+
+    if inner.is_empty() {
+        return;
+    }
+
+    let width = inner.width.max(1) as usize;
+    let mut y = inner.y;
+
+    let focus_line = if let Some(ref streaming) = state.streaming {
+        format!(
+            "Responding… {}",
+            truncate(streaming, width.saturating_sub(14))
+        )
+    } else if let Some(msg) = state.messages.iter().rev().find(|m| m.role == "assistant") {
+        format!(
+            "Assistant: {}",
+            truncate(&msg.content.replace('\n', " "), width.saturating_sub(12))
+        )
+    } else {
+        format!(
+            "Status: {}",
+            truncate(&state.status, width.saturating_sub(10))
+        )
+    };
+
+    for line in wrap_text(&focus_line, width, "") {
+        if y >= inner.bottom() {
+            break;
+        }
+        buf.set_string(inner.x, y, &line, Style::new().fg(Color::White).bold());
+        y += 1;
+    }
+
+    if y < inner.bottom() {
+        if let Some(msg) = state.messages.iter().rev().find(|m| m.role == "user") {
+            let user_line = format!(
+                "You: {}",
+                truncate(&msg.content.replace('\n', " "), width.saturating_sub(6))
+            );
+            for line in wrap_text(&user_line, width, "") {
+                if y >= inner.bottom() {
+                    break;
+                }
+                buf.set_string(
+                    inner.x,
+                    y,
+                    &line,
+                    Style::new().fg(Color::Rgb(170, 220, 170)),
+                );
+                y += 1;
+            }
+        }
+    }
+
+    let reasoning_lines: Vec<_> = state
+        .reasoning
+        .iter()
+        .take(2)
+        .map(|r| truncate(r, width))
+        .collect();
+    for line in reasoning_lines {
+        if y >= inner.bottom() {
+            break;
+        }
+        buf.set_string(
+            inner.x,
+            y,
+            &line,
+            Style::new().fg(Color::Rgb(120, 140, 170)),
+        );
+        y += 1;
+    }
+
+    if y < inner.bottom() {
+        let mic_line = if state.listening {
+            "Mic: live — listening for cues"
+        } else {
+            "Mic: off — tap Ctrl+A to monitor"
+        };
+        buf.set_string(
+            inner.x,
+            y,
+            &truncate(mic_line, width),
+            Style::new().fg(Color::Yellow),
+        );
+        y += 1;
+    }
+
+    if y < inner.bottom() {
+        let quick_hint = "Glance-safe: big type, few lines, no clutter";
+        buf.set_string(
+            inner.x,
+            y,
+            &truncate(quick_hint, width),
+            Style::new().fg(Color::DarkGrey),
+        );
+    }
+}
+
+fn render_glass_footer(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    let block = Block::bordered()
+        .title("Quick controls")
+        .border_style(Style::new().fg(Color::DarkGrey));
+    let inner = block.inner(area);
+    Widget::render(&block, area, buf);
+
+    if inner.is_empty() {
+        return;
+    }
+
+    let width = inner.width as usize;
+    let hints = [
+        "Ctrl+G or /glass toggles HUD",
+        "Ctrl+A mic | Ctrl+S stream | Ctrl+T processes",
+        "Designed for narrow viewports — short, high-contrast lines",
+    ];
+
+    for (i, hint) in hints.iter().enumerate() {
+        let y = inner.y + i as u16;
+        if y >= inner.bottom() {
+            break;
+        }
+        let fg = if i == 0 {
+            Color::Cyan
+        } else {
+            Color::Rgb(120, 120, 140)
+        };
+        buf.set_string(inner.x, y, &truncate(hint, width), Style::new().fg(fg));
     }
 }
 
