@@ -30,10 +30,10 @@ name = "spec-ai"
 path = "src/main.rs"
 
 [dependencies]
-spec-ai-core = { path = "../spec-ai-core", version = "0.4.16" }
-spec-ai-config = { path = "../spec-ai-config", version = "0.4.16" }
-spec-ai-policy = { path = "../spec-ai-policy", version = "0.4.16" }
-spec-ai-api = { path = "../spec-ai-api", version = "0.4.16", optional = true }
-spec-ai-cli = { path = "../spec-ai-cli", version = "0.4.16", optional = true }
+spec-ai-core = { path = "../spec-ai-core", version = "0.5.0" }
+spec-ai-config = { path = "../spec-ai-config", version = "0.5.0" }
+spec-ai-policy = { path = "../spec-ai-policy", version = "0.5.0" }
+spec-ai-api = { path = "../spec-ai-api", version = "0.5.0", optional = true }
+spec-ai-cli = { path = "../spec-ai-cli", version = "0.5.0", optional = true }
 
 anyhow = { workspace = true }

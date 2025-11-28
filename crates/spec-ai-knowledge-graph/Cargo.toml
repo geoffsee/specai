@@ -1,0 +1,17 @@
+[package]
+name = "spec-ai-knowledge-graph"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+description.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+duckdb.workspace = true
+serde.workspace = true
+serde_json.workspace = true

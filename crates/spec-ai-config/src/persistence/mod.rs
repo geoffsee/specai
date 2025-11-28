@@ -7,6 +7,7 @@ use duckdb::{params, Connection};
 use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use spec_ai_knowledge_graph::KnowledgeGraphStore;
 
 use crate::types::{
     EdgeType, GraphEdge, GraphNode, GraphPath, MemoryVector, Message, MessageRole, NodeType,
@@ -17,6 +18,7 @@ use crate::types::{
 pub struct Persistence {
     conn: Arc<Mutex<Connection>>,
     instance_id: String,
+    graph_store: KnowledgeGraphStore,
 }
 
 impl Persistence {
@@ -33,15 +35,23 @@ impl Persistence {
         }
         let conn = Connection::open(&db_path).context("opening DuckDB")?;
         migrations::run(&conn).context("running migrations")?;
+        let conn_arc = Arc::new(Mutex::new(conn));
+        let graph_store = KnowledgeGraphStore::new(conn_arc.clone(), instance_id.clone());
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            conn: conn_arc,
             instance_id,
+            graph_store,
         })
     }
 
     /// Get the instance ID for this persistence instance
     pub fn instance_id(&self) -> &str {
         &self.instance_id
+    }
+
+    /// Get direct access to the KnowledgeGraphStore for Phase 2+ consumer migration
+    pub fn graph_store(&self) -> &KnowledgeGraphStore {
+        &self.graph_store
     }
 
     /// Checkpoint the database to ensure all WAL data is written to the main database file.
@@ -338,268 +348,88 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 
 // ========== Knowledge Graph Methods ==========
 
+// Type Conversion Helpers
+
+fn from_kg_node(node: spec_ai_knowledge_graph::GraphNode) -> GraphNode {
+    GraphNode {
+        id: node.id,
+        session_id: node.session_id,
+        node_type: node.node_type,
+        label: node.label,
+        properties: node.properties,
+        embedding_id: node.embedding_id,
+        created_at: node.created_at,
+        updated_at: node.updated_at,
+    }
+}
+
+fn from_kg_edge(edge: spec_ai_knowledge_graph::GraphEdge) -> GraphEdge {
+    GraphEdge {
+        id: edge.id,
+        session_id: edge.session_id,
+        source_id: edge.source_id,
+        target_id: edge.target_id,
+        edge_type: edge.edge_type,
+        predicate: edge.predicate,
+        properties: edge.properties,
+        weight: edge.weight,
+        temporal_start: edge.temporal_start,
+        temporal_end: edge.temporal_end,
+        created_at: edge.created_at,
+    }
+}
+
+fn from_kg_path(path: spec_ai_knowledge_graph::GraphPath) -> GraphPath {
+    GraphPath {
+        nodes: path.nodes.into_iter().map(from_kg_node).collect(),
+        edges: path.edges.into_iter().map(from_kg_edge).collect(),
+        length: path.length,
+        weight: path.weight,
+    }
+}
+
+
 impl Persistence {
     // ---------- Graph Node Operations ----------
 
     pub fn insert_graph_node(
         &self,
         session_id: &str,
-        node_type: NodeType,
+        node_type: spec_ai_knowledge_graph::NodeType,
         label: &str,
         properties: &JsonValue,
         embedding_id: Option<i64>,
     ) -> Result<i64> {
-        use crate::sync::VectorClock;
-
-        // Check if sync is enabled BEFORE locking the connection to avoid deadlock
-        let sync_enabled = self
-            .graph_get_sync_enabled(session_id, "default")
-            .unwrap_or(false);
-
-        // Create initial vector clock for this node
-        let mut vector_clock = VectorClock::new();
-        vector_clock.increment(&self.instance_id);
-        let vc_json = vector_clock.to_json()?;
-
-        let conn = self.conn();
-
-        // Insert the node with sync metadata
-        let mut stmt = conn.prepare(
-            "INSERT INTO graph_nodes (session_id, node_type, label, properties, embedding_id,
-                                     vector_clock, last_modified_by, sync_enabled)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-        )?;
-        let id: i64 = stmt.query_row(
-            params![
-                session_id,
-                node_type.as_str(),
-                label,
-                properties.to_string(),
-                embedding_id,
-                vc_json,
-                self.instance_id,
-                sync_enabled,
-            ],
-            |row| row.get(0),
-        )?;
-
-        // If sync is enabled, append to changelog
-        if sync_enabled {
-            let node_data = serde_json::json!({
-                "id": id,
-                "session_id": session_id,
-                "node_type": node_type.as_str(),
-                "label": label,
-                "properties": properties,
-                "embedding_id": embedding_id,
-            });
-
-            self.graph_changelog_append(
-                session_id,
-                &self.instance_id,
-                "node",
-                id,
-                "create",
-                &vc_json,
-                Some(&node_data.to_string()),
-            )?;
-        }
-
-        Ok(id)
+        self.graph_store.insert_graph_node(session_id, node_type, label, properties, embedding_id)
     }
 
     pub fn get_graph_node(&self, node_id: i64) -> Result<Option<GraphNode>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, session_id, node_type, label, properties, embedding_id,
-                    CAST(created_at AS TEXT), CAST(updated_at AS TEXT)
-             FROM graph_nodes WHERE id = ?",
-        )?;
-        let mut rows = stmt.query(params![node_id])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(Self::row_to_graph_node(row)?))
-        } else {
-            Ok(None)
-        }
+        self.graph_store
+            .get_graph_node(node_id)
+            .map(|opt| opt.map(from_kg_node))
     }
 
     pub fn list_graph_nodes(
         &self,
         session_id: &str,
-        node_type: Option<NodeType>,
+        node_type: Option<spec_ai_knowledge_graph::NodeType>,
         limit: Option<i64>,
     ) -> Result<Vec<GraphNode>> {
-        let conn = self.conn();
-
-        let nodes = if let Some(nt) = node_type {
-            let mut stmt = conn.prepare(
-                "SELECT id, session_id, node_type, label, properties, embedding_id,
-                        CAST(created_at AS TEXT), CAST(updated_at AS TEXT)
-                 FROM graph_nodes WHERE session_id = ? AND node_type = ?
-                 ORDER BY id DESC LIMIT ?",
-            )?;
-            let query = stmt.query(params![session_id, nt.as_str(), limit.unwrap_or(100)])?;
-            Self::collect_graph_nodes(query)?
-        } else {
-            let mut stmt = conn.prepare(
-                "SELECT id, session_id, node_type, label, properties, embedding_id,
-                        CAST(created_at AS TEXT), CAST(updated_at AS TEXT)
-                 FROM graph_nodes WHERE session_id = ?
-                 ORDER BY id DESC LIMIT ?",
-            )?;
-            let query = stmt.query(params![session_id, limit.unwrap_or(100)])?;
-            Self::collect_graph_nodes(query)?
-        };
-
-        Ok(nodes)
+        self.graph_store
+            .list_graph_nodes(session_id, node_type, limit)
+            .map(|nodes| nodes.into_iter().map(from_kg_node).collect())
     }
 
     pub fn count_graph_nodes(&self, session_id: &str) -> Result<i64> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT COUNT(*) FROM graph_nodes WHERE session_id = ?")?;
-        let count: i64 = stmt.query_row(params![session_id], |row| row.get(0))?;
-        Ok(count)
+        self.graph_store.count_graph_nodes(session_id)
     }
 
     pub fn update_graph_node(&self, node_id: i64, properties: &JsonValue) -> Result<()> {
-        use crate::sync::VectorClock;
-
-        let conn = self.conn();
-
-        // First get the current node data and vector clock
-        let mut stmt = conn.prepare(
-            "SELECT session_id, node_type, label, vector_clock, sync_enabled
-             FROM graph_nodes WHERE id = ?",
-        )?;
-
-        let (session_id, node_type, label, current_vc_json, sync_enabled): (
-            String,
-            String,
-            String,
-            Option<String>,
-            bool,
-        ) = stmt.query_row(params![node_id], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4).unwrap_or(false),
-            ))
-        })?;
-
-        // Update the vector clock
-        let mut vector_clock = if let Some(vc_json) = current_vc_json {
-            VectorClock::from_json(&vc_json).unwrap_or_else(|_| VectorClock::new())
-        } else {
-            VectorClock::new()
-        };
-        vector_clock.increment(&self.instance_id);
-        let vc_json = vector_clock.to_json()?;
-
-        // Update the node with new properties and sync metadata
-        conn.execute(
-            "UPDATE graph_nodes
-             SET properties = ?,
-                 vector_clock = ?,
-                 last_modified_by = ?,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?",
-            params![properties.to_string(), vc_json, self.instance_id, node_id],
-        )?;
-
-        // If sync is enabled, append to changelog
-        if sync_enabled {
-            let node_data = serde_json::json!({
-                "id": node_id,
-                "session_id": session_id,
-                "node_type": node_type,
-                "label": label,
-                "properties": properties,
-            });
-
-            self.graph_changelog_append(
-                &session_id,
-                &self.instance_id,
-                "node",
-                node_id,
-                "update",
-                &vc_json,
-                Some(&node_data.to_string()),
-            )?;
-        }
-
-        Ok(())
+        self.graph_store.update_graph_node(node_id, properties)
     }
 
     pub fn delete_graph_node(&self, node_id: i64) -> Result<()> {
-        use crate::sync::VectorClock;
-
-        let conn = self.conn();
-
-        // First get the node data before deletion
-        let mut stmt = conn.prepare(
-            "SELECT session_id, node_type, label, properties, vector_clock, sync_enabled
-             FROM graph_nodes WHERE id = ?",
-        )?;
-
-        let result = stmt.query_row(params![node_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, bool>(5).unwrap_or(false),
-            ))
-        });
-
-        // If node exists, handle sync tracking
-        if let Ok((session_id, node_type, label, properties, current_vc_json, sync_enabled)) =
-            result
-        {
-            if sync_enabled {
-                // Update the vector clock for the deletion
-                let mut vector_clock = if let Some(vc_json) = current_vc_json {
-                    VectorClock::from_json(&vc_json).unwrap_or_else(|_| VectorClock::new())
-                } else {
-                    VectorClock::new()
-                };
-                vector_clock.increment(&self.instance_id);
-                let vc_json = vector_clock.to_json()?;
-
-                // Create a tombstone entry for sync
-                conn.execute(
-                    "INSERT INTO graph_tombstones
-                     (session_id, entity_type, entity_id, deleted_by, vector_clock)
-                     VALUES (?, ?, ?, ?, ?)",
-                    params![session_id, "node", node_id, self.instance_id, vc_json],
-                )?;
-
-                // Append deletion to changelog
-                let node_data = serde_json::json!({
-                    "id": node_id,
-                    "session_id": session_id,
-                    "node_type": node_type,
-                    "label": label,
-                    "properties": properties,
-                });
-
-                self.graph_changelog_append(
-                    &session_id,
-                    &self.instance_id,
-                    "node",
-                    node_id,
-                    "delete",
-                    &vc_json,
-                    Some(&node_data.to_string()),
-                )?;
-            }
-        }
-
-        // Now delete the node
-        conn.execute("DELETE FROM graph_nodes WHERE id = ?", params![node_id])?;
-        Ok(())
+        self.graph_store.delete_graph_node(node_id)
     }
 
     // ---------- Graph Edge Operations ----------
@@ -609,88 +439,26 @@ impl Persistence {
         session_id: &str,
         source_id: i64,
         target_id: i64,
-        edge_type: EdgeType,
+        edge_type: spec_ai_knowledge_graph::EdgeType,
         predicate: Option<&str>,
         properties: Option<&JsonValue>,
         weight: f32,
     ) -> Result<i64> {
-        use crate::sync::VectorClock;
-
-        // Check if sync is enabled BEFORE locking the connection to avoid deadlock
-        let sync_enabled = self
-            .graph_get_sync_enabled(session_id, "default")
-            .unwrap_or(false);
-
-        // Create initial vector clock for this edge
-        let mut vector_clock = VectorClock::new();
-        vector_clock.increment(&self.instance_id);
-        let vc_json = vector_clock.to_json()?;
-
-        let conn = self.conn();
-
-        // Insert the edge with sync metadata
-        let mut stmt = conn.prepare(
-            "INSERT INTO graph_edges (session_id, source_id, target_id, edge_type, predicate, properties, weight,
-                                     vector_clock, last_modified_by, sync_enabled)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-        )?;
-        let props_str = properties.map(|p| p.to_string());
-        let id: i64 = stmt.query_row(
-            params![
-                session_id,
-                source_id,
-                target_id,
-                edge_type.as_str(),
-                predicate,
-                props_str,
-                weight,
-                vc_json,
-                self.instance_id,
-                sync_enabled,
-            ],
-            |row| row.get(0),
-        )?;
-
-        // If sync is enabled, append to changelog
-        if sync_enabled {
-            let edge_data = serde_json::json!({
-                "id": id,
-                "session_id": session_id,
-                "source_id": source_id,
-                "target_id": target_id,
-                "edge_type": edge_type.as_str(),
-                "predicate": predicate,
-                "properties": properties,
-                "weight": weight,
-            });
-
-            self.graph_changelog_append(
-                session_id,
-                &self.instance_id,
-                "edge",
-                id,
-                "insert",
-                &vc_json,
-                Some(&edge_data.to_string()),
-            )?;
-        }
-
-        Ok(id)
+        self.graph_store.insert_graph_edge(
+            session_id,
+            source_id,
+            target_id,
+            edge_type,
+            predicate,
+            properties,
+            weight,
+        )
     }
 
     pub fn get_graph_edge(&self, edge_id: i64) -> Result<Option<GraphEdge>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
-                    CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
-             FROM graph_edges WHERE id = ?",
-        )?;
-        let mut rows = stmt.query(params![edge_id])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(Self::row_to_graph_edge(row)?))
-        } else {
-            Ok(None)
-        }
+        self.graph_store
+            .get_graph_edge(edge_id)
+            .map(|opt| opt.map(from_kg_edge))
     }
 
     pub fn list_graph_edges(
@@ -699,141 +467,17 @@ impl Persistence {
         source_id: Option<i64>,
         target_id: Option<i64>,
     ) -> Result<Vec<GraphEdge>> {
-        let conn = self.conn();
-
-        let edges = match (source_id, target_id) {
-            (Some(src), Some(tgt)) => {
-                let mut stmt = conn.prepare(
-                    "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
-                            CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
-                     FROM graph_edges WHERE session_id = ? AND source_id = ? AND target_id = ?",
-                )?;
-                let query = stmt.query(params![session_id, src, tgt])?;
-                Self::collect_graph_edges(query)?
-            }
-            (Some(src), None) => {
-                let mut stmt = conn.prepare(
-                    "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
-                            CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
-                     FROM graph_edges WHERE session_id = ? AND source_id = ?",
-                )?;
-                let query = stmt.query(params![session_id, src])?;
-                Self::collect_graph_edges(query)?
-            }
-            (None, Some(tgt)) => {
-                let mut stmt = conn.prepare(
-                    "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
-                            CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
-                     FROM graph_edges WHERE session_id = ? AND target_id = ?",
-                )?;
-                let query = stmt.query(params![session_id, tgt])?;
-                Self::collect_graph_edges(query)?
-            }
-            (None, None) => {
-                let mut stmt = conn.prepare(
-                    "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
-                            CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT)
-                     FROM graph_edges WHERE session_id = ?",
-                )?;
-                let query = stmt.query(params![session_id])?;
-                Self::collect_graph_edges(query)?
-            }
-        };
-
-        Ok(edges)
+        self.graph_store
+            .list_graph_edges(session_id, source_id, target_id)
+            .map(|edges| edges.into_iter().map(from_kg_edge).collect())
     }
 
     pub fn count_graph_edges(&self, session_id: &str) -> Result<i64> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT COUNT(*) FROM graph_edges WHERE session_id = ?")?;
-        let count: i64 = stmt.query_row(params![session_id], |row| row.get(0))?;
-        Ok(count)
+        self.graph_store.count_graph_edges(session_id)
     }
 
     pub fn delete_graph_edge(&self, edge_id: i64) -> Result<()> {
-        use crate::sync::VectorClock;
-
-        let conn = self.conn();
-
-        // First get the edge data before deletion
-        let mut stmt = conn.prepare(
-            "SELECT session_id, source_id, target_id, edge_type, predicate, properties, weight,
-                    vector_clock, sync_enabled
-             FROM graph_edges WHERE id = ?",
-        )?;
-
-        let result = stmt.query_row(params![edge_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, f32>(6)?,
-                row.get::<_, Option<String>>(7)?,
-                row.get::<_, bool>(8).unwrap_or(false),
-            ))
-        });
-
-        // If edge exists, handle sync tracking
-        if let Ok((
-            session_id,
-            source_id,
-            target_id,
-            edge_type,
-            predicate,
-            properties,
-            weight,
-            current_vc_json,
-            sync_enabled,
-        )) = result
-        {
-            if sync_enabled {
-                // Update the vector clock for the deletion
-                let mut vector_clock = if let Some(vc_json) = current_vc_json {
-                    VectorClock::from_json(&vc_json).unwrap_or_else(|_| VectorClock::new())
-                } else {
-                    VectorClock::new()
-                };
-                vector_clock.increment(&self.instance_id);
-                let vc_json = vector_clock.to_json()?;
-
-                // Create a tombstone entry for sync
-                conn.execute(
-                    "INSERT INTO graph_tombstones
-                     (session_id, entity_type, entity_id, deleted_by, vector_clock)
-                     VALUES (?, ?, ?, ?, ?)",
-                    params![session_id, "edge", edge_id, self.instance_id, vc_json],
-                )?;
-
-                // Append deletion to changelog
-                let edge_data = serde_json::json!({
-                    "id": edge_id,
-                    "session_id": session_id,
-                    "source_id": source_id,
-                    "target_id": target_id,
-                    "edge_type": edge_type,
-                    "predicate": predicate,
-                    "properties": properties,
-                    "weight": weight,
-                });
-
-                self.graph_changelog_append(
-                    &session_id,
-                    &self.instance_id,
-                    "edge",
-                    edge_id,
-                    "delete",
-                    &vc_json,
-                    Some(&edge_data.to_string()),
-                )?;
-            }
-        }
-
-        // Now delete the edge
-        conn.execute("DELETE FROM graph_edges WHERE id = ?", params![edge_id])?;
-        Ok(())
+        self.graph_store.delete_graph_edge(edge_id)
     }
 
     // ---------- Graph Traversal Operations ----------
@@ -845,221 +489,21 @@ impl Persistence {
         target_id: i64,
         max_hops: Option<usize>,
     ) -> Result<Option<GraphPath>> {
-        // Simple BFS implementation for finding shortest path
-        // In production, this would use DuckPGQ's ANY SHORTEST functionality
-        let max_depth = max_hops.unwrap_or(10);
-
-        let mut visited = std::collections::HashSet::new();
-        let mut queue = std::collections::VecDeque::new();
-        let mut parent_map = std::collections::HashMap::new();
-
-        queue.push_back((source_id, 0));
-        visited.insert(source_id);
-
-        while let Some((current_id, depth)) = queue.pop_front() {
-            if current_id == target_id {
-                // Reconstruct path
-                let path = self.reconstruct_path(&parent_map, source_id, target_id)?;
-                return Ok(Some(path));
-            }
-
-            if depth >= max_depth {
-                continue;
-            }
-
-            // Get outgoing edges
-            let edges = self.list_graph_edges(session_id, Some(current_id), None)?;
-            for edge in edges {
-                let target = edge.target_id;
-                if !visited.contains(&target) {
-                    visited.insert(target);
-                    parent_map.insert(target, (current_id, edge));
-                    queue.push_back((target, depth + 1));
-                }
-            }
-        }
-
-        Ok(None)
+        self.graph_store
+            .find_shortest_path(session_id, source_id, target_id, max_hops)
+            .map(|opt| opt.map(from_kg_path))
     }
 
     pub fn traverse_neighbors(
         &self,
         session_id: &str,
         node_id: i64,
-        direction: TraversalDirection,
+        direction: spec_ai_knowledge_graph::TraversalDirection,
         depth: usize,
     ) -> Result<Vec<GraphNode>> {
-        if depth == 0 {
-            return Ok(vec![]);
-        }
-
-        let mut visited = std::collections::HashSet::new();
-        let mut result = Vec::new();
-        let mut queue = std::collections::VecDeque::new();
-
-        queue.push_back((node_id, 0));
-        visited.insert(node_id);
-
-        while let Some((current_id, current_depth)) = queue.pop_front() {
-            if current_depth > 0 {
-                if let Some(node) = self.get_graph_node(current_id)? {
-                    result.push(node);
-                }
-            }
-
-            if current_depth >= depth {
-                continue;
-            }
-
-            // Get edges based on direction
-            let edges = match direction {
-                TraversalDirection::Outgoing => {
-                    self.list_graph_edges(session_id, Some(current_id), None)?
-                }
-                TraversalDirection::Incoming => {
-                    self.list_graph_edges(session_id, None, Some(current_id))?
-                }
-                TraversalDirection::Both => {
-                    let mut out_edges =
-                        self.list_graph_edges(session_id, Some(current_id), None)?;
-                    let in_edges = self.list_graph_edges(session_id, None, Some(current_id))?;
-                    out_edges.extend(in_edges);
-                    out_edges
-                }
-            };
-
-            for edge in edges {
-                let next_id = match direction {
-                    TraversalDirection::Outgoing => edge.target_id,
-                    TraversalDirection::Incoming => edge.source_id,
-                    TraversalDirection::Both => {
-                        if edge.source_id == current_id {
-                            edge.target_id
-                        } else {
-                            edge.source_id
-                        }
-                    }
-                };
-
-                if !visited.contains(&next_id) {
-                    visited.insert(next_id);
-                    queue.push_back((next_id, current_depth + 1));
-                }
-            }
-        }
-
-        Ok(result)
-    }
-
-    // ---------- Helper Methods ----------
-
-    fn row_to_graph_node(row: &duckdb::Row) -> Result<GraphNode> {
-        let id: i64 = row.get(0)?;
-        let session_id: String = row.get(1)?;
-        let node_type: String = row.get(2)?;
-        let label: String = row.get(3)?;
-        let properties: String = row.get(4)?;
-        let embedding_id: Option<i64> = row.get(5)?;
-        let created_at: String = row.get(6)?;
-        let updated_at: String = row.get(7)?;
-
-        Ok(GraphNode {
-            id,
-            session_id,
-            node_type: NodeType::from_str(&node_type),
-            label,
-            properties: serde_json::from_str(&properties).unwrap_or(JsonValue::Null),
-            embedding_id,
-            created_at: created_at.parse().unwrap_or_else(|_| Utc::now()),
-            updated_at: updated_at.parse().unwrap_or_else(|_| Utc::now()),
-        })
-    }
-
-    fn row_to_graph_edge(row: &duckdb::Row) -> Result<GraphEdge> {
-        let id: i64 = row.get(0)?;
-        let session_id: String = row.get(1)?;
-        let source_id: i64 = row.get(2)?;
-        let target_id: i64 = row.get(3)?;
-        let edge_type: String = row.get(4)?;
-        let predicate: Option<String> = row.get(5)?;
-        let properties: Option<String> = row.get(6)?;
-        let weight: f32 = row.get(7)?;
-        let temporal_start: Option<String> = row.get(8)?;
-        let temporal_end: Option<String> = row.get(9)?;
-        let created_at: String = row.get(10)?;
-
-        Ok(GraphEdge {
-            id,
-            session_id,
-            source_id,
-            target_id,
-            edge_type: EdgeType::from_str(&edge_type),
-            predicate,
-            properties: properties.and_then(|p| serde_json::from_str(&p).ok()),
-            weight,
-            temporal_start: temporal_start.and_then(|s| s.parse().ok()),
-            temporal_end: temporal_end.and_then(|s| s.parse().ok()),
-            created_at: created_at.parse().unwrap_or_else(|_| Utc::now()),
-        })
-    }
-
-    fn collect_graph_nodes(mut rows: duckdb::Rows) -> Result<Vec<GraphNode>> {
-        let mut nodes = Vec::new();
-        while let Some(row) = rows.next()? {
-            nodes.push(Self::row_to_graph_node(row)?);
-        }
-        Ok(nodes)
-    }
-
-    fn collect_graph_edges(mut rows: duckdb::Rows) -> Result<Vec<GraphEdge>> {
-        let mut edges = Vec::new();
-        while let Some(row) = rows.next()? {
-            edges.push(Self::row_to_graph_edge(row)?);
-        }
-        Ok(edges)
-    }
-
-    fn reconstruct_path(
-        &self,
-        parent_map: &std::collections::HashMap<i64, (i64, GraphEdge)>,
-        source_id: i64,
-        target_id: i64,
-    ) -> Result<GraphPath> {
-        let mut path_edges = Vec::new();
-        let mut path_nodes = Vec::new();
-        let mut current = target_id;
-        let mut total_weight = 0.0;
-
-        // Collect edges in reverse order
-        while current != source_id {
-            if let Some((parent, edge)) = parent_map.get(&current) {
-                path_edges.push(edge.clone());
-                total_weight += edge.weight;
-                current = *parent;
-            } else {
-                break;
-            }
-        }
-
-        // Reverse to get correct order
-        path_edges.reverse();
-
-        // Collect nodes
-        if let Some(node) = self.get_graph_node(source_id)? {
-            path_nodes.push(node);
-        }
-        for edge in &path_edges {
-            if let Some(node) = self.get_graph_node(edge.target_id)? {
-                path_nodes.push(node);
-            }
-        }
-
-        Ok(GraphPath {
-            length: path_edges.len(),
-            weight: total_weight,
-            nodes: path_nodes,
-            edges: path_edges,
-        })
+        self.graph_store
+            .traverse_neighbors(session_id, node_id, direction, depth)
+            .map(|nodes| nodes.into_iter().map(from_kg_node).collect())
     }
 
     // ---------- Transcriptions ----------
@@ -1334,14 +778,15 @@ impl Persistence {
         vector_clock: &str,
         data: Option<&str>,
     ) -> Result<i64> {
-        let conn = self.conn();
-        conn.execute(
-            "INSERT INTO graph_changelog (session_id, instance_id, entity_type, entity_id, operation, vector_clock, data)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params![session_id, instance_id, entity_type, entity_id, operation, vector_clock, data],
-        )?;
-        let id: i64 = conn.query_row("SELECT last_insert_rowid()", params![], |row| row.get(0))?;
-        Ok(id)
+        self.graph_store.graph_changelog_append(
+            session_id,
+            instance_id,
+            entity_type,
+            entity_id,
+            operation,
+            vector_clock,
+            data,
+        )
     }
 
     /// Get changelog entries since a given timestamp for a session
@@ -1350,31 +795,29 @@ impl Persistence {
         session_id: &str,
         since_timestamp: &str,
     ) -> Result<Vec<ChangelogEntry>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, session_id, instance_id, entity_type, entity_id, operation, vector_clock, data, CAST(created_at AS TEXT)
-             FROM graph_changelog
-             WHERE session_id = ? AND created_at > ?
-             ORDER BY created_at ASC",
-        )?;
-        let mut rows = stmt.query(params![session_id, since_timestamp])?;
-        let mut entries = Vec::new();
-        while let Some(row) = rows.next()? {
-            entries.push(ChangelogEntry::from_row(row)?);
-        }
-        Ok(entries)
+        self.graph_store
+            .graph_changelog_get_since(session_id, since_timestamp)
+            .map(|entries| {
+                entries
+                    .into_iter()
+                    .map(|e| ChangelogEntry {
+                        id: e.id,
+                        session_id: e.session_id,
+                        instance_id: e.instance_id,
+                        entity_type: e.entity_type,
+                        entity_id: e.entity_id,
+                        operation: e.operation,
+                        vector_clock: e.vector_clock,
+                        data: e.data,
+                        created_at: e.created_at,
+                    })
+                    .collect()
+            })
     }
 
     /// Prune old changelog entries (keep last N days)
     pub fn graph_changelog_prune(&self, days_to_keep: i64) -> Result<usize> {
-        let conn = self.conn();
-        let cutoff = chrono::Utc::now() - chrono::Duration::days(days_to_keep);
-        let cutoff_str = cutoff.to_rfc3339();
-        let deleted = conn.execute(
-            "DELETE FROM graph_changelog WHERE created_at < ?",
-            params![cutoff_str],
-        )?;
-        Ok(deleted)
+        self.graph_store.graph_changelog_prune(days_to_keep)
     }
 
     /// Get the vector clock for an instance/session/graph combination
@@ -1384,17 +827,8 @@ impl Persistence {
         session_id: &str,
         graph_name: &str,
     ) -> Result<Option<String>> {
-        let conn = self.conn();
-        let result: Result<String, _> = conn.query_row(
-            "SELECT vector_clock FROM graph_sync_state WHERE instance_id = ? AND session_id = ? AND graph_name = ?",
-            params![instance_id, session_id, graph_name],
-            |row| row.get(0),
-        );
-        match result {
-            Ok(vc) => Ok(Some(vc)),
-            Err(duckdb::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        self.graph_store
+            .graph_sync_state_get(instance_id, session_id, graph_name)
     }
 
     /// Update the vector clock for an instance/session/graph combination
@@ -1405,19 +839,8 @@ impl Persistence {
         graph_name: &str,
         vector_clock: &str,
     ) -> Result<()> {
-        let conn = self.conn();
-        // Upsert pattern
-        conn.execute("BEGIN TRANSACTION", params![])?;
-        conn.execute(
-            "DELETE FROM graph_sync_state WHERE instance_id = ? AND session_id = ? AND graph_name = ?",
-            params![instance_id, session_id, graph_name],
-        )?;
-        conn.execute(
-            "INSERT INTO graph_sync_state (instance_id, session_id, graph_name, vector_clock) VALUES (?, ?, ?, ?)",
-            params![instance_id, session_id, graph_name, vector_clock],
-        )?;
-        conn.execute("COMMIT", params![])?;
-        Ok(())
+        self.graph_store
+            .graph_sync_state_update(instance_id, session_id, graph_name, vector_clock)
     }
 
     /// Enable or disable sync for a graph
@@ -1427,78 +850,41 @@ impl Persistence {
         graph_name: &str,
         enabled: bool,
     ) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "UPDATE graph_metadata SET sync_enabled = ? WHERE session_id = ? AND graph_name = ?",
-            params![enabled, session_id, graph_name],
-        )?;
-        Ok(())
+        self.graph_store
+            .graph_set_sync_enabled(session_id, graph_name, enabled)
     }
 
     /// Check if sync is enabled for a graph
     pub fn graph_get_sync_enabled(&self, session_id: &str, graph_name: &str) -> Result<bool> {
-        let conn = self.conn();
-        let result: Result<bool, _> = conn.query_row(
-            "SELECT sync_enabled FROM graph_metadata WHERE session_id = ? AND graph_name = ?",
-            params![session_id, graph_name],
-            |row| row.get(0),
-        );
-        match result {
-            Ok(enabled) => Ok(enabled),
-            Err(duckdb::Error::QueryReturnedNoRows) => Ok(false),
-            Err(e) => Err(e.into()),
-        }
+        self.graph_store
+            .graph_get_sync_enabled(session_id, graph_name)
     }
 
     /// List all graphs for a session
     pub fn graph_list(&self, session_id: &str) -> Result<Vec<String>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT graph_name FROM graph_metadata WHERE session_id = ?
-             UNION
-             SELECT DISTINCT 'default' as graph_name
-             FROM graph_nodes WHERE session_id = ?
-             ORDER BY graph_name",
-        )?;
-
-        let mut graphs = Vec::new();
-        let mut rows = stmt.query(params![session_id, session_id])?;
-        while let Some(row) = rows.next()? {
-            let graph_name: String = row.get(0)?;
-            graphs.push(graph_name);
-        }
-
-        // Always include "default" if we have any nodes
-        if graphs.is_empty() {
-            let node_count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM graph_nodes WHERE session_id = ?",
-                params![session_id],
-                |row| row.get(0),
-            )?;
-            if node_count > 0 {
-                graphs.push("default".to_string());
-            }
-        }
-
-        Ok(graphs)
+        self.graph_store.graph_list(session_id)
     }
 
     /// Get a node with its sync metadata
     pub fn graph_get_node_with_sync(&self, node_id: i64) -> Result<Option<SyncedNodeRecord>> {
-        let conn = self.conn();
-        let result: Result<SyncedNodeRecord, _> = conn.query_row(
-            "SELECT id, session_id, node_type, label, properties, embedding_id,
-                    CAST(created_at AS TEXT), CAST(updated_at AS TEXT),
-                    COALESCE(vector_clock, '{}'), last_modified_by, is_deleted, sync_enabled
-             FROM graph_nodes WHERE id = ?",
-            params![node_id],
-            SyncedNodeRecord::from_row,
-        );
-        match result {
-            Ok(node) => Ok(Some(node)),
-            Err(duckdb::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        self.graph_store
+            .graph_get_node_with_sync(node_id)
+            .map(|opt| {
+                opt.map(|r| SyncedNodeRecord {
+                    id: r.id,
+                    session_id: r.session_id,
+                    node_type: r.node_type,
+                    label: r.label,
+                    properties: r.properties,
+                    embedding_id: r.embedding_id,
+                    created_at: r.created_at,
+                    updated_at: r.updated_at,
+                    vector_clock: r.vector_clock,
+                    last_modified_by: r.last_modified_by,
+                    is_deleted: r.is_deleted,
+                    sync_enabled: r.sync_enabled,
+                })
+            })
     }
 
     /// Get all synced nodes for a session with optional filters
@@ -1508,47 +894,52 @@ impl Persistence {
         sync_enabled_only: bool,
         include_deleted: bool,
     ) -> Result<Vec<SyncedNodeRecord>> {
-        let conn = self.conn();
-        let mut query = String::from(
-            "SELECT id, session_id, node_type, label, properties, embedding_id,
-                    CAST(created_at AS TEXT), CAST(updated_at AS TEXT),
-                    COALESCE(vector_clock, '{}'), last_modified_by, is_deleted, sync_enabled
-             FROM graph_nodes WHERE session_id = ?",
-        );
-
-        if sync_enabled_only {
-            query.push_str(" AND sync_enabled = TRUE");
-        }
-        if !include_deleted {
-            query.push_str(" AND is_deleted = FALSE");
-        }
-        query.push_str(" ORDER BY created_at ASC");
-
-        let mut stmt = conn.prepare(&query)?;
-        let mut rows = stmt.query(params![session_id])?;
-        let mut nodes = Vec::new();
-        while let Some(row) = rows.next()? {
-            nodes.push(SyncedNodeRecord::from_row(row)?);
-        }
-        Ok(nodes)
+        self.graph_store
+            .graph_list_nodes_with_sync(session_id, sync_enabled_only, include_deleted)
+            .map(|nodes| {
+                nodes
+                    .into_iter()
+                    .map(|r| SyncedNodeRecord {
+                        id: r.id,
+                        session_id: r.session_id,
+                        node_type: r.node_type,
+                        label: r.label,
+                        properties: r.properties,
+                        embedding_id: r.embedding_id,
+                        created_at: r.created_at,
+                        updated_at: r.updated_at,
+                        vector_clock: r.vector_clock,
+                        last_modified_by: r.last_modified_by,
+                        is_deleted: r.is_deleted,
+                        sync_enabled: r.sync_enabled,
+                    })
+                    .collect()
+            })
     }
 
     /// Get an edge with its sync metadata
     pub fn graph_get_edge_with_sync(&self, edge_id: i64) -> Result<Option<SyncedEdgeRecord>> {
-        let conn = self.conn();
-        let result: Result<SyncedEdgeRecord, _> = conn.query_row(
-            "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
-                    CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT),
-                    COALESCE(vector_clock, '{}'), last_modified_by, is_deleted, sync_enabled
-             FROM graph_edges WHERE id = ?",
-            params![edge_id],
-            SyncedEdgeRecord::from_row,
-        );
-        match result {
-            Ok(edge) => Ok(Some(edge)),
-            Err(duckdb::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        self.graph_store
+            .graph_get_edge_with_sync(edge_id)
+            .map(|opt| {
+                opt.map(|r| SyncedEdgeRecord {
+                    id: r.id,
+                    session_id: r.session_id,
+                    source_id: r.source_id,
+                    target_id: r.target_id,
+                    edge_type: r.edge_type,
+                    predicate: r.predicate,
+                    properties: r.properties,
+                    weight: r.weight,
+                    temporal_start: r.temporal_start,
+                    temporal_end: r.temporal_end,
+                    created_at: r.created_at,
+                    vector_clock: r.vector_clock,
+                    last_modified_by: r.last_modified_by,
+                    is_deleted: r.is_deleted,
+                    sync_enabled: r.sync_enabled,
+                })
+            })
     }
 
     /// Get all synced edges for a session with optional filters
@@ -1558,29 +949,30 @@ impl Persistence {
         sync_enabled_only: bool,
         include_deleted: bool,
     ) -> Result<Vec<SyncedEdgeRecord>> {
-        let conn = self.conn();
-        let mut query = String::from(
-            "SELECT id, session_id, source_id, target_id, edge_type, predicate, properties, weight,
-                    CAST(temporal_start AS TEXT), CAST(temporal_end AS TEXT), CAST(created_at AS TEXT),
-                    COALESCE(vector_clock, '{}'), last_modified_by, is_deleted, sync_enabled
-             FROM graph_edges WHERE session_id = ?",
-        );
-
-        if sync_enabled_only {
-            query.push_str(" AND sync_enabled = TRUE");
-        }
-        if !include_deleted {
-            query.push_str(" AND is_deleted = FALSE");
-        }
-        query.push_str(" ORDER BY created_at ASC");
-
-        let mut stmt = conn.prepare(&query)?;
-        let mut rows = stmt.query(params![session_id])?;
-        let mut edges = Vec::new();
-        while let Some(row) = rows.next()? {
-            edges.push(SyncedEdgeRecord::from_row(row)?);
-        }
-        Ok(edges)
+        self.graph_store
+            .graph_list_edges_with_sync(session_id, sync_enabled_only, include_deleted)
+            .map(|edges| {
+                edges
+                    .into_iter()
+                    .map(|r| SyncedEdgeRecord {
+                        id: r.id,
+                        session_id: r.session_id,
+                        source_id: r.source_id,
+                        target_id: r.target_id,
+                        edge_type: r.edge_type,
+                        predicate: r.predicate,
+                        properties: r.properties,
+                        weight: r.weight,
+                        temporal_start: r.temporal_start,
+                        temporal_end: r.temporal_end,
+                        created_at: r.created_at,
+                        vector_clock: r.vector_clock,
+                        last_modified_by: r.last_modified_by,
+                        is_deleted: r.is_deleted,
+                        sync_enabled: r.sync_enabled,
+                    })
+                    .collect()
+            })
     }
 
     /// Update a node's sync metadata
@@ -1591,13 +983,8 @@ impl Persistence {
         last_modified_by: &str,
         sync_enabled: bool,
     ) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "UPDATE graph_nodes SET vector_clock = ?, last_modified_by = ?, sync_enabled = ?, updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?",
-            params![vector_clock, last_modified_by, sync_enabled, node_id],
-        )?;
-        Ok(())
+        self.graph_store
+            .graph_update_node_sync_metadata(node_id, vector_clock, last_modified_by, sync_enabled)
     }
 
     /// Update an edge's sync metadata
@@ -1608,13 +995,8 @@ impl Persistence {
         last_modified_by: &str,
         sync_enabled: bool,
     ) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "UPDATE graph_edges SET vector_clock = ?, last_modified_by = ?, sync_enabled = ?
-             WHERE id = ?",
-            params![vector_clock, last_modified_by, sync_enabled, edge_id],
-        )?;
-        Ok(())
+        self.graph_store
+            .graph_update_edge_sync_metadata(edge_id, vector_clock, last_modified_by, sync_enabled)
     }
 
     /// Mark a node as deleted (tombstone pattern)
@@ -1624,13 +1006,8 @@ impl Persistence {
         vector_clock: &str,
         deleted_by: &str,
     ) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "UPDATE graph_nodes SET is_deleted = TRUE, vector_clock = ?, last_modified_by = ?, updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?",
-            params![vector_clock, deleted_by, node_id],
-        )?;
-        Ok(())
+        self.graph_store
+            .graph_mark_node_deleted(node_id, vector_clock, deleted_by)
     }
 
     /// Mark an edge as deleted (tombstone pattern)
@@ -1640,13 +1017,8 @@ impl Persistence {
         vector_clock: &str,
         deleted_by: &str,
     ) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "UPDATE graph_edges SET is_deleted = TRUE, vector_clock = ?, last_modified_by = ?
-             WHERE id = ?",
-            params![vector_clock, deleted_by, edge_id],
-        )?;
-        Ok(())
+        self.graph_store
+            .graph_mark_edge_deleted(edge_id, vector_clock, deleted_by)
     }
 }
 
