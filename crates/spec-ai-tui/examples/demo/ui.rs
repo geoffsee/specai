@@ -85,6 +85,9 @@ fn render_glass_mode(state: &DemoState, area: Rect, buf: &mut Buffer) {
     render_glass_status_bar(state, chunks[0], buf);
     render_glass_focus_card(state, chunks[1], buf);
     render_glass_footer(state, chunks[2], buf);
+
+    // Torus as ambient presence indicator in bottom-right corner
+    render_glass_torus_overlay(state, area, buf);
 }
 
 fn render_glass_status_bar(state: &DemoState, area: Rect, buf: &mut Buffer) {
@@ -117,6 +120,179 @@ fn render_glass_status_bar(state: &DemoState, area: Rect, buf: &mut Buffer) {
         ]);
 
     Widget::render(&bar, area, buf);
+}
+
+/// Renders a small torus as an ambient presence indicator in the bottom-right corner.
+fn render_glass_torus_overlay(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    // Larger size for better braille resolution
+    let torus_width: u16 = 28;
+    let torus_height: u16 = 12;
+
+    // Position: bottom-right corner with small margin
+    let margin = 1_u16;
+    let x = area.right().saturating_sub(torus_width + margin);
+    let y = area.bottom().saturating_sub(torus_height + margin + 3); // Above footer
+
+    if x < area.x || y < area.y {
+        return;
+    }
+
+    let torus_area = Rect::new(x, y, torus_width, torus_height);
+    render_torus(state, torus_area, buf);
+}
+
+/// Core torus rendering using braille characters for 8x resolution.
+/// Each braille character is a 2x4 grid of dots, giving much smoother curves.
+fn render_torus(state: &DemoState, area: Rect, buf: &mut Buffer) {
+    if area.width < 8 || area.height < 4 {
+        return;
+    }
+
+    let char_width = area.width as usize;
+    let char_height = area.height as usize;
+
+    // Braille gives us 2x horizontal and 4x vertical resolution
+    let pixel_width = char_width * 2;
+    let pixel_height = char_height * 4;
+
+    // Torus parameters
+    let r1: f32 = 1.0; // Tube radius
+    let r2: f32 = 2.0; // Torus radius
+    let k1: f32 = (pixel_height as f32) * 0.7; // Scale factor
+
+    // Animation: rotation based on tick
+    let speed_mult = if state.streaming.is_some() { 0.15 } else { 0.03 };
+    let a = (state.tick as f32) * speed_mult;
+    let b = (state.tick as f32) * speed_mult * 0.6;
+
+    let (sin_a, cos_a) = a.sin_cos();
+    let (sin_b, cos_b) = b.sin_cos();
+
+    // High-res z-buffer and luminance buffer
+    let mut z_buffer = vec![0.0_f32; pixel_width * pixel_height];
+    let mut lum_buffer = vec![-2.0_f32; pixel_width * pixel_height]; // -2 = empty
+
+    // Sample the torus surface densely for solid braille fill
+    let theta_steps = 314;
+    let phi_steps = 157;
+
+    for i in 0..theta_steps {
+        let theta = (i as f32) * 2.0 * std::f32::consts::PI / (theta_steps as f32);
+        let (sin_theta, cos_theta) = theta.sin_cos();
+
+        for j in 0..phi_steps {
+            let phi = (j as f32) * 2.0 * std::f32::consts::PI / (phi_steps as f32);
+            let (sin_phi, cos_phi) = phi.sin_cos();
+
+            let circle_x = r2 + r1 * cos_theta;
+            let circle_y = r1 * sin_theta;
+
+            let x = circle_x * (cos_b * cos_phi + sin_a * sin_b * sin_phi)
+                - circle_y * cos_a * sin_b;
+            let y = circle_x * (sin_b * cos_phi - sin_a * cos_b * sin_phi)
+                + circle_y * cos_a * cos_b;
+            let z = cos_a * circle_x * sin_phi + circle_y * sin_a;
+
+            let distance = 5.0;
+            let ooz = 1.0 / (z + distance);
+
+            // Project to pixel coordinates
+            let xp = (pixel_width as f32 / 2.0 + k1 * ooz * x * 0.5) as i32;
+            let yp = (pixel_height as f32 / 2.0 - k1 * ooz * y * 0.5) as i32;
+
+            if xp >= 0 && xp < pixel_width as i32 && yp >= 0 && yp < pixel_height as i32 {
+                let idx = yp as usize * pixel_width + xp as usize;
+
+                let luminance = cos_phi * cos_theta * sin_b
+                    - cos_a * cos_theta * sin_phi
+                    - sin_a * sin_theta
+                    + cos_b * (cos_a * sin_theta - cos_theta * sin_a * sin_phi);
+
+                if ooz > z_buffer[idx] {
+                    z_buffer[idx] = ooz;
+                    lum_buffer[idx] = luminance;
+                }
+            }
+        }
+    }
+
+    // Convert pixel buffer to braille characters
+    // Braille dot positions in a 2x4 cell:
+    //   0 3
+    //   1 4
+    //   2 5
+    //   6 7
+    let dot_bits: [u8; 8] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80];
+
+    let is_active = state.streaming.is_some();
+
+    for cy in 0..char_height {
+        for cx in 0..char_width {
+            let mut braille: u8 = 0;
+            let mut max_lum: f32 = -2.0;
+            let mut has_pixel = false;
+
+            // Check each of the 8 dots in this braille cell
+            for dot in 0..8 {
+                let (dx, dy) = match dot {
+                    0 => (0, 0),
+                    1 => (0, 1),
+                    2 => (0, 2),
+                    3 => (1, 0),
+                    4 => (1, 1),
+                    5 => (1, 2),
+                    6 => (0, 3),
+                    7 => (1, 3),
+                    _ => unreachable!(),
+                };
+
+                let px = cx * 2 + dx;
+                let py = cy * 4 + dy;
+
+                if px < pixel_width && py < pixel_height {
+                    let idx = py * pixel_width + px;
+                    let lum = lum_buffer[idx];
+                    if lum > -1.5 {
+                        // Has a pixel here
+                        braille |= dot_bits[dot];
+                        has_pixel = true;
+                        if lum > max_lum {
+                            max_lum = lum;
+                        }
+                    }
+                }
+            }
+
+            if has_pixel {
+                // Convert to braille unicode (U+2800 + pattern)
+                let braille_char = char::from_u32(0x2800 + braille as u32).unwrap_or(' ');
+
+                // Color based on luminance and activity
+                let color = if is_active {
+                    if max_lum > 0.4 {
+                        Color::Rgb(255, 230, 180) // Warm bright
+                    } else if max_lum > 0.0 {
+                        Color::Rgb(220, 180, 120) // Warm mid
+                    } else {
+                        Color::Rgb(140, 100, 60) // Warm dark
+                    }
+                } else if max_lum > 0.4 {
+                    Color::Rgb(160, 220, 240) // Cool bright
+                } else if max_lum > 0.0 {
+                    Color::Rgb(80, 150, 180) // Cool mid
+                } else {
+                    Color::Rgb(40, 80, 110) // Cool dark
+                };
+
+                buf.set_string(
+                    area.x + cx as u16,
+                    area.y + cy as u16,
+                    &braille_char.to_string(),
+                    Style::new().fg(color),
+                );
+            }
+        }
+    }
 }
 
 fn render_glass_focus_card(state: &DemoState, area: Rect, buf: &mut Buffer) {
